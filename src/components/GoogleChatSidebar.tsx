@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Space, User } from '../types';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
+import { isWorkspaceConnected } from '../services/googleWorkspace';
 
 interface GoogleChatSidebarProps {
   currentUser: User;
@@ -221,7 +222,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
                 <span className="font-bold text-[#2C2520]">Google Workspace</span>
               </div>
               <span className="px-2 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[10px] font-bold">
-                {currentUser.googleConnected ? '100% 연동됨' : '연동 허브'}
+                {isWorkspaceConnected() ? 'Workspace 연동됨' : currentUser.googleConnected ? '로그인됨' : '연동 허브'}
               </span>
             </button>
 
@@ -502,7 +503,9 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               </div>
               <div className="text-[10px] text-[#7A6A5C] truncate flex items-center gap-1">
                 {currentUser.googleConnected ? (
-                  <span className="text-[#38A169] font-bold">Google 연동</span>
+                  <span className="text-[#38A169] font-bold">
+                    {isWorkspaceConnected() ? 'Google Workspace 연동' : 'Google 로그인됨'}
+                  </span>
                 ) : (
                   <span>{currentUser.role}</span>
                 )}

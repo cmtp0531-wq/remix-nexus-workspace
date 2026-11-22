@@ -74,7 +74,7 @@ export const createWorkspaceProvider = (): GoogleAuthProvider => {
   return provider;
 };
 
-// Session-backed token cache
+// Session-backed token cache (Gmail·Drive·Calendar 등 워크스페이스 권한 전용)
 const TOKEN_SESSION_KEY = 'gchat_workspace_oauth_token';
 let cachedAccessToken: string | null = typeof window !== 'undefined' ? sessionStorage.getItem(TOKEN_SESSION_KEY) : null;
 let isSigningIn = false;
@@ -94,13 +94,15 @@ export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
+/** 실제 Gmail·Drive·Calendar 권한(스코프)까지 연결되어 있는지 */
+export const isWorkspaceConnected = (): boolean => Boolean(cachedAccessToken);
+
 /** 구글 로그인 (팝업 차단 시 리다이렉트로 자동 전환) */
 export const signInWithGoogleAccount = async (): Promise<FirebaseUser> => {
   try {
     lastAuthErrorCode = '';
     const result = await signInWithPopup(auth, workspaceProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) setAccessTokenInMemory(credential.accessToken);
+    // 기본 로그인 토큰에는 Gmail/Drive 범위가 없으므로 워크스페이스 토큰으로 저장하지 않습니다.
     return result.user;
   } catch (error: any) {
     const code = String(error?.code || '');
@@ -122,8 +124,6 @@ export const completeRedirectSignIn = async (): Promise<FirebaseUser | null> => 
   try {
     const result = await getRedirectResult(auth);
     if (!result) return null;
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) setAccessTokenInMemory(credential.accessToken);
     return result.user;
   } catch (error: any) {
     lastAuthErrorCode = String(error?.code || '');

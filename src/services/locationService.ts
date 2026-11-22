@@ -139,15 +139,24 @@ export const searchPlaces = async (query: string, limit = 8): Promise<GeoPlace[]
     `/search?format=jsonv2&q=${encodeURIComponent(clean)}&limit=${limit}&addressdetails=1&accept-language=ko`
   );
   if (!Array.isArray(data)) return [];
-  return data.map((item: any) => {
+  const seen = new Set<string>();
+  const places: GeoPlace[] = [];
+  data.forEach((item: any) => {
+    const lat = Number(item.lat);
+    const lng = Number(item.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     const parts = String(item.display_name || '').split(',');
-    return {
+    places.push({
       name: String(item.name || parts[0] || clean).trim(),
       address: String(item.display_name || ''),
-      lat: Number(item.lat),
-      lng: Number(item.lon),
-    };
+      lat,
+      lng,
+    });
   });
+  return places;
 };
 
 /** 지도 임베드 URL (키 없이 동작하는 방식) */

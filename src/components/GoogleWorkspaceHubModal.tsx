@@ -22,6 +22,7 @@ import {
 import { User, Space, DriveDocument, TaskItem, CalendarEvent } from '../types';
 import { 
   signInWithGoogleWorkspace, 
+  isWorkspaceConnected,
   describeAuthError,
   getLastAuthErrorCode,
   createGoogleCalendarWebLink,
@@ -157,8 +158,14 @@ export const GoogleWorkspaceHubModal: React.FC<GoogleWorkspaceHubModalProps> = (
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-[#2C2520]">Google Workspace 연동 허브</h3>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] font-bold border border-[#A8DAB5]">
-                  100% 완전 연동
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                    isWorkspaceConnected()
+                      ? 'bg-[#E6F4EA] text-[#137333] border-[#A8DAB5]'
+                      : 'bg-[#FFF7EB] text-[#A15C00] border-[#FBD38D]'
+                  }`}
+                >
+                  {isWorkspaceConnected() ? 'Workspace 연동됨' : '권한 연결 필요'}
                 </span>
               </div>
               <p className="text-xs text-[#7A6A5C]">Drive • Gmail • Docs • Meet • Calendar • Tasks 올인원 관리</p>
@@ -172,14 +179,22 @@ export const GoogleWorkspaceHubModal: React.FC<GoogleWorkspaceHubModalProps> = (
         {/* Live Connection Banner */}
         <div className="p-3.5 rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-[#15803D] animate-ping flex-shrink-0" />
+            <div
+              className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                isWorkspaceConnected() ? 'bg-[#15803D] animate-ping' : 'bg-[#F59E0B]'
+              }`}
+            />
             <div>
               <div className="text-xs font-bold text-[#2C2520]">
                 {currentUser.name} ({currentUser.email})
               </div>
               <div className="text-[11px] text-[#2E7D32] flex items-center gap-1.5 mt-0.5 font-medium">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Drive 문서 실시간 분할 편집 • Gmail 메일 작성 • Meet 화상회의 준비됨</span>
+                <span>
+                  {isWorkspaceConnected()
+                    ? 'Drive 문서 실시간 분할 편집 • Gmail 메일 작성 • Meet 화상회의 준비됨'
+                    : '아래 "연동 갱신"을 누르면 Gmail·Drive·Calendar 권한을 이 계정에 연결합니다'}
+                </span>
               </div>
             </div>
           </div>
