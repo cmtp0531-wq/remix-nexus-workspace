@@ -13,7 +13,11 @@ import {
   Check,
   RefreshCw
 } from 'lucide-react';
-import { searchYouTubeVideos, YouTubeVideoItem } from '../services/geminiService';
+import {
+  fetchYouTubeTrending,
+  searchYouTubeVideosDetailed,
+  YouTubeVideoItem,
+} from '../services/geminiService';
 
 interface YouTubeHubModalProps {
   isOpen: boolean;
@@ -30,8 +34,10 @@ export const YouTubeHubModal: React.FC<YouTubeHubModalProps> = ({
   const [inputUrl, setInputUrl] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<YouTubeVideoItem[]>([]);
-  const [activeVideoId, setActiveVideoId] = useState<string | null>('jfKfPfyJRdk');
-  const [activeVideoTitle, setActiveVideoTitle] = useState('lofi hip hop radio - beats to relax/study to');
+  const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
+  const [activeVideoTitle, setActiveVideoTitle] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [searchSource, setSearchSource] = useState<'google' | 'piped' | 'invidious' | 'trending' | 'none'>('none');
 
   // Universal Extract YouTube ID helper (supports shorts, live, standard, mobile, embed)
   const extractVideoId = (url: string): string | null => {
@@ -52,24 +58,42 @@ export const YouTubeHubModal: React.FC<YouTubeHubModalProps> = ({
     return null;
   };
 
-  // Perform search on mount or query
+  // 열릴 때: 실제 인기 영상 목록을 불러옵니다 (서버 불필요)
   useEffect(() => {
-    if (isOpen) {
-      handleSearch('Google Workspace');
-    }
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      setIsSearching(true);
+      const trend = await fetchYouTubeTrending(14);
+      if (cancelled) return;
+      setSearchResults(trend);
+      setSearchSource(trend.length > 0 ? 'trending' : 'none');
+      if (trend.length === 0) {
+        setSearchError('인기 영상 목록을 불러오지 못했습니다. 검색어를 입력하거나 유튜브 링크를 붙여넣어 주세요.');
+      }
+      setIsSearching(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const handleSearch = async (queryText: string) => {
     setIsSearching(true);
+    setSearchError('');
     try {
-      const results = await searchYouTubeVideos(queryText);
-      setSearchResults(results);
-      if (results.length > 0 && !activeVideoId) {
-        setActiveVideoId(results[0].id);
-        setActiveVideoTitle(results[0].title);
+      const result = await searchYouTubeVideosDetailed(queryText);
+      setSearchResults(result.items);
+      setSearchSource(result.source);
+      if (result.items.length === 0) {
+        setSearchError(result.error || '검색 결과가 없습니다. 다른 검색어로 시도해 주세요.');
+      } else if (!activeVideoId) {
+        setActiveVideoId(result.items[0].id);
+        setActiveVideoTitle(result.items[0].title);
       }
     } catch (e) {
       console.warn('Search failed', e);
+      setSearchError('검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setIsSearching(false);
     }
@@ -251,13 +275,21 @@ export const YouTubeHubModal: React.FC<YouTubeHubModalProps> = ({
           {/* Right: Search Results List */}
           <div className="space-y-2 overflow-y-auto max-h-[350px] pr-1">
             <div className="text-[11px] font-bold text-[#5C5046] flex items-center justify-between">
-              <span>검색 결과 ({searchResults.length}개):</span>
+              <span>
+                {searchSource === 'trending' ? '지금 인기 영상' : '검색 결과'} ({searchResults.length}개):
+              </span>
               <span className="text-[10px] text-[#A89A8E]">클릭 시 왼쪽에서 즉시 재생</span>
             </div>
 
+            {searchError && !isSearching && (
+              <div className="p-3 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-[11px] text-[#8C6B3F] leading-relaxed">
+                {searchError}
+              </div>
+            )}
+
             {searchResults.length === 0 ? (
               <div className="text-center py-12 text-xs text-[#A89A8E] bg-white rounded-xl border border-[#EBE5DA] p-6">
-                {isSearching ? 'YouTube에서 영상을 찾는 중...' : '검색어를 입력하고 검색 버튼을 누르세요.'}
+                {isSearching ? 'YouTube에서 영상을 찾는 중...' : '검색어를 입력하거나 유튜브 링크를 붙여넣어 주세요.'}
               </div>
             ) : (
               searchResults.map((item) => {

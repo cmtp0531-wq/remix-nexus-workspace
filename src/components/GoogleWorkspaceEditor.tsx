@@ -112,6 +112,13 @@ export interface SheetTab {
   data: string[][];
 }
 
+
+// 외부 스톡 사진 대신 앱 안에서 생성하는 샘플 이미지(오프라인에서도 즉시 표시)
+const sampleImage = (label: string, hue: number): string => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue}, 30%, 90%)"/><stop offset="100%" stop-color="hsl(${hue + 26}, 26%, 70%)"/></linearGradient></defs><rect width="320" height="180" fill="url(#g)"/><text x="160" y="98" font-family="sans-serif" font-size="18" fill="#4A3E34" text-anchor="middle">${label}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
+
 export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = ({
   fileId,
   fileName,
@@ -935,7 +942,7 @@ export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = ({
         layout: 'showcase',
         title: '신제품 핵심 아키텍처 쇼케이스',
         subtitle: '완벽한 반응형 인터페이스와 모던 사용자 경험',
-        imageUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
+        imageUrl: sampleImage('데이터 차트', 210),
         bullets: ['실시간 양방향 데이터 바인딩', '서랍형 부드러운 애니메이션', '초경량 고성능 엔진 탑재'],
       });
       showToast('✓ 이미지 쇼케이스 템플릿이 적용되었습니다.');
@@ -2027,9 +2034,9 @@ export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = ({
               <span className="text-[11px] font-semibold text-[#7A6A5C]">추천 비즈니스 스톡 이미지:</span>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { name: '오피스', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&auto=format&fit=crop&q=80' },
-                  { name: '데이터 차트', url: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&auto=format&fit=crop&q=80' },
-                  { name: '팀 회의', url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop&q=80' }
+                  { name: '오피스', url: sampleImage('오피스', 32) },
+                  { name: '데이터 차트', url: sampleImage('데이터 차트', 210) },
+                  { name: '팀 회의', url: sampleImage('팀 회의', 150) }
                 ].map((sample, i) => (
                   <button
                     key={i}
@@ -2476,10 +2483,10 @@ export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = ({
                       <span className="text-[10px] font-semibold text-[#7A6A5C]">스톡 추천 사진:</span>
                       <div className="grid grid-cols-2 gap-2">
                         {[
-                          'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&auto=format&fit=crop&q=80',
-                          'https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&auto=format&fit=crop&q=80',
-                          'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop&q=80',
-                          'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&auto=format&fit=crop&q=80'
+                          sampleImage('데이터 차트', 210),
+                          sampleImage('오피스', 32),
+                          sampleImage('팀 회의', 150),
+                          sampleImage('아이디어', 275)
                         ].map((url, i) => (
                           <img
                             key={i}

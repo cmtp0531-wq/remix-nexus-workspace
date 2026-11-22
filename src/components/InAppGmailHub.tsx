@@ -25,6 +25,8 @@ import {
   markRealGmailRead,
   trashRealGmailMessage,
   getAccessToken,
+  describeAuthError,
+  getLastAuthErrorCode,
   signInWithGoogleWorkspace
 } from '../services/googleWorkspace';
 
@@ -63,6 +65,7 @@ export const InAppGmailHub: React.FC<InAppGmailHubProps> = ({
 
   // Toast & confirmation
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     description: string;
@@ -91,8 +94,9 @@ export const InAppGmailHub: React.FC<InAppGmailHubProps> = ({
     try {
       const list = await fetchRealGmailMessages(searchQuery, selectedFolder, 30);
       setMessages(list);
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Failed to load messages:', e);
+      showToast('Gmail을 불러오지 못했습니다. Google Workspace 권한을 다시 연결해 주세요.');
     } finally {
       setIsLoading(false);
     }
@@ -208,19 +212,20 @@ export const InAppGmailHub: React.FC<InAppGmailHubProps> = ({
   };
 
   const handleConnectGoogle = async () => {
+    setIsConnecting(true);
     try {
-      await signInWithGoogleWorkspace();
-      checkTokenAndLoad();
+      const result = await signInWithGoogleWorkspace();
+      if (!result) {
+        showToast(describeAuthError(getLastAuthErrorCode()));
+        return;
+      }
+      await checkTokenAndLoad();
+      showToast('✓ Gmail 권한이 연결되었습니다.');
     } catch (e: any) {
       console.warn('OAuth connect failed', e);
-      const message = String(e?.message || '');
-      if (message.includes('Firebase 설정이 없습니다')) {
-        showToast('먼저 설정(⚙) → Google 연동에서 본인 Firebase 설정을 저장해 주세요.');
-      } else if (message.includes('popup')) {
-        showToast('로그인 창이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요.');
-      } else {
-        showToast('Google 연결에 실패했습니다. 설정의 Firebase 구성과 승인된 도메인을 확인해 주세요.');
-      }
+      showToast(describeAuthError(String(e?.code || e?.message || '')));
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -285,9 +290,10 @@ export const InAppGmailHub: React.FC<InAppGmailHubProps> = ({
           </p>
           <button
             onClick={handleConnectGoogle}
-            className="px-5 py-2.5 bg-[#3E2723] text-white text-sm font-medium rounded-xl hover:bg-[#2C2520] shadow-sm transition-all cursor-pointer"
+            disabled={isConnecting}
+            className="px-5 py-2.5 bg-[#3E2723] text-white text-sm font-medium rounded-xl hover:bg-[#2C2520] shadow-sm transition-all cursor-pointer disabled:opacity-60"
           >
-            Google Workspace 권한 연결하기
+            {isConnecting ? '권한 확인 중…' : 'Google Workspace 권한 연결하기'}
           </button>
         </div>
       ) : (

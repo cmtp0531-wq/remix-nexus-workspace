@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WorkChat 개인정보처리방침</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; padding: 32px 20px 64px; background: #fdfbf7; color: #2c2520;
+             font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+             line-height: 1.75; }
+      main { max-width: 760px; margin: 0 auto; }
+      h1 { font-size: 22px; margin-bottom: 4px; }
+      h2 { font-size: 15px; margin-top: 28px; }
+      p, li { font-size: 13.5px; color: #4a3e34; }
+      .meta { font-size: 12px; color: #8c7a6b; }
+      a { color: #8d5b4c; }
+      .card { background: #fff; border: 1px solid #ebe5da; border-radius: 14px; padding: 18px 20px; margin-top: 18px; }
+      code { background: #f4efe6; padding: 1px 5px; border-radius: 6px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>WorkChat 개인정보처리방침</h1>
+      <p class="meta">앱 이름: WorkChat (Remix Nexus Workspace) · 최종 수정: 2026년 11월 22일</p>
+
+      <div class="card">
+        <p>
+          WorkChat은 사용자가 직접 실행하는 개인용 협업 메신저 웹앱입니다. 이 문서는 앱이 어떤 정보를
+          처리하고 어디에 저장하는지 설명합니다.
+        </p>
+      </div>
+
+      <h2>1. 처리하는 정보</h2>
+      <ul>
+        <li><strong>Google 계정 기본 정보</strong>: 로그인 시 이름, 이메일 주소, 프로필 사진.</li>
+        <li><strong>사용자가 입력한 콘텐츠</strong>: 채팅 메시지, 할 일, 문서·시트·슬라이드 내용, 첨부 파일.</li>
+        <li>
+          <strong>Google Workspace 데이터(선택)</strong>: 사용자가 Gmail·Drive·Calendar·Tasks 권한을 직접
+          허용한 경우에만 해당 기능을 위해 읽기·쓰기합니다.
+        </li>
+        <li><strong>위치 정보(선택)</strong>: 사용자가 위치 공유를 열고 브라우저 권한을 허용한 경우에만 현재 좌표를 사용합니다.</li>
+      </ul>
+
+      <h2>2. 저장 위치</h2>
+      <ul>
+        <li>앱 설정·초안·대화 기록 일부는 사용자의 브라우저 <code>localStorage</code>에 저장됩니다.</li>
+        <li>Google 로그인 후의 프로필·메시지는 앱 소유의 Google Firebase(Firestore) 프로젝트에 저장되어 기기 간 동기화됩니다.</li>
+        <li>Gmail·Drive 등 Google 데이터는 저장하지 않고, 요청한 시점에 Google API에서 직접 읽어 표시합니다.</li>
+      </ul>
+
+      <h2>3. 제3자 제공</h2>
+      <p>
+        앱은 사용자의 정보를 판매하거나 광고 목적으로 제3자에게 제공하지 않습니다. 기능 수행에 필요한
+        Google API(Google Identity, Gmail, Drive, Calendar, Tasks, Meet, YouTube)와 Google Firebase만 사용합니다.
+      </p>
+
+      <h2>4. 보관 및 삭제</h2>
+      <p>
+        브라우저에 저장된 데이터는 앱 설정의 <em>로컬 데이터 초기화</em>로 삭제할 수 있습니다. Google 계정
+        연동은 언제든지 <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google 계정 권한 페이지</a>에서
+        해제할 수 있으며, 해제하면 앱은 더 이상 해당 데이터에 접근하지 못합니다.
+      </p>
+
+      <h2>5. 문의</h2>
+      <p>이메일: <a href="mailto:cmtp0531@gmail.com">cmtp0531@gmail.com</a></p>
+
+      <p class="meta"><a href="./index.html">← WorkChat으로 돌아가기</a></p>
+    </main>
+  </body>
+</html>

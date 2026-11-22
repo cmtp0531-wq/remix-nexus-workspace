@@ -55,7 +55,17 @@ import {
   isGoogleSignedIn
 } from './services/googleWorkspace';
 import { isFirebaseConfigured, onSettingsChanged } from './services/appConfig';
+import {
+  completeRedirectSignIn,
+  createRealCalendarEvent,
+  describeAuthError,
+  getAccessToken,
+  getLastAuthErrorCode,
+  syncTaskToGoogle,
+  updateGoogleTaskStatus,
+} from './services/googleWorkspace';
 import type { User as FirebaseUser } from 'firebase/auth';
+import { avatarSrc, handleAvatarError } from './components/UserAvatar';
 
 export default function App() {
   // 로그인 게이트 없이 바로 워크스페이스를 사용합니다.
@@ -66,6 +76,13 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [showGuestBanner, setShowGuestBanner] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('workchat_guest_banner_dismissed') !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [firebaseReady, setFirebaseReady] = useState(() => isFirebaseConfigured());
   const [allUsers, setAllUsers] = useState<User[]>(() => storage.getUsers());
@@ -129,6 +146,11 @@ export default function App() {
     return () => window.removeEventListener('resize', checkDevice);
   }, []);
 
+  // 팝업이 차단되어 리다이렉트로 진행된 로그인 결과를 복원합니다.
+  useEffect(() => {
+    void completeRedirectSignIn();
+  }, []);
+
   // Firebase Authentication restores the real Google account on refresh.
   // Firebase 미설정/비로그인 상태에서는 게스트(로컬) 사용자로 그대로 진입합니다.
   useEffect(() => {
@@ -146,7 +168,7 @@ export default function App() {
         id: firebaseUser.uid,
         name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Google 사용자',
         email: firebaseUser.email || '',
-        avatar: firebaseUser.photoURL || existing?.avatar || 'https://www.gravatar.com/avatar/?d=mp',
+        avatar: firebaseUser.photoURL || existing?.avatar || '',
         status: 'online',
         role: existing?.role || '팀원',
         department: existing?.department || '협업팀',
@@ -182,7 +204,7 @@ export default function App() {
               id: cu.id,
               name: cu.name || 'Google 사용자',
               email: cu.email || '',
-              avatar: cu.avatar || 'https://www.gravatar.com/avatar/?d=mp',
+              avatar: cu.avatar || '',
               status: (cu.status as any) || 'online',
               role: cu.role || '팀원',
               department: cu.department || '협업팀',
@@ -213,16 +235,13 @@ export default function App() {
       // onAuthStateChanged above creates the local profile.
     } catch (error: any) {
       console.error('Google sign-in failed:', error);
-      const code = String(error?.code || '');
-      if (code.includes('unauthorized-domain')) {
-        setAuthError('이 사이트 주소가 Firebase 인증 허용 도메인에 없습니다. Firebase Console → Authentication → Settings → Authorized domains에 배포 주소를 추가하세요.');
-      } else if (code.includes('popup')) {
-        setAuthError('Google 로그인 창이 차단되었습니다. 브라우저에서 팝업을 허용한 뒤 다시 시도하세요.');
-      } else if (code.includes('operation-not-allowed')) {
-        setAuthError('Firebase Console에서 Authentication의 Google 로그인 제공자를 활성화해야 합니다.');
-      } else {
-        setAuthError('Google 로그인에 실패했습니다. Firebase 설정과 허용 도메인을 확인한 뒤 다시 시도하세요.');
-      }
+      const code = String(error?.code || '') || getLastAuthErrorCode();
+      const message =
+        code.includes('popup-blocked') || code.includes('cancelled-popup-request')
+          ? '로그인 창이 차단되어 리다이렉트로 전환합니다. 잠시 후 자동으로 이어집니다.'
+          : describeAuthError(code);
+      setAuthError(message);
+      notificationService.notify({ title: 'Google 로그인', body: message });
     } finally {
       setAuthLoading(false);
     }
@@ -482,7 +501,7 @@ export default function App() {
           spaceId: activeSpaceId,
           senderId: 'gemini_ai_bot',
           senderName: 'Gemini 3.7 AI 비서',
-          senderAvatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80',
+          senderAvatar: '',
           senderRole: 'AI 협업 비서',
           content: aiAnswer,
           timestamp: '방금 전',
@@ -500,7 +519,6 @@ export default function App() {
         notificationService.notify({
           title: 'Gemini 3.7 AI 비서 ✨',
           body: aiAnswer.length > 70 ? aiAnswer.substring(0, 70) + '...' : aiAnswer,
-          icon: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80',
         });
       }, 700);
     }
@@ -794,6 +812,7 @@ export default function App() {
     timeStr: string;
     location: string;
     attendees: string[];
+    meetLink?: string;
   }) => {
     handleSendMessage(`새로운 캘린더 일정이 등록되었습니다: **${event.eventTitle}**`, [
       {
@@ -802,6 +821,35 @@ export default function App() {
         rsvps: { [currentUser.id]: 'accepted' },
       },
     ]);
+
+    // Google Calendar 권한이 연결되어 있으면 실제 캘린더에도 일정을 만듭니다.
+    const [startTime, endTime] = (event.timeStr || '').split('-').map((part) => part.trim());
+    if (startTime && endTime) {
+      void (async () => {
+        const token = await getAccessToken();
+        if (!token) return;
+        const attendeeEmails = allUsers
+          .filter((user) => event.attendees.includes(user.name) && user.email)
+          .map((user) => user.email);
+        const result = await createRealCalendarEvent({
+          title: event.eventTitle,
+          dateStr: event.dateStr,
+          startTime,
+          endTime,
+          location: event.location,
+          description: event.meetLink ? `Google Meet: ${event.meetLink}` : undefined,
+          attendeeEmails,
+        });
+        if (result.success) {
+          notificationService.notify({ title: 'Google Calendar', body: '일정이 내 캘린더에도 등록되었습니다.' });
+        } else if (result.error && result.error !== 'no-token') {
+          notificationService.notify({
+            title: 'Google Calendar',
+            body: '내 캘린더에는 등록하지 못했습니다. Workspace 권한을 다시 연결해 주세요.',
+          });
+        }
+      })();
+    }
   };
 
   const handleRsvpCalendar = (
@@ -1085,12 +1133,101 @@ export default function App() {
     const nextTasks = [newTask, ...tasks];
     storage.saveTasks(nextTasks);
     setTasks(nextTasks);
+
+    // Google Workspace 권한이 있으면 Google Tasks 에도 동기화합니다.
+    void (async () => {
+      const token = await getAccessToken();
+      if (!token) return;
+      const result = await syncTaskToGoogle({
+        title: newTask.title,
+        dueDate: newTask.dueDate || undefined,
+        notes: `WorkChat · ${newTask.assigneeName}`,
+      });
+      if (result.success && result.googleTaskId) {
+        setTasks((prev) => {
+          const synced = prev.map((item) =>
+            item.id === newTask.id
+              ? { ...item, googleTaskId: result.googleTaskId, syncedToGoogleTasks: true }
+              : item
+          );
+          storage.saveTasks(synced);
+          return synced;
+        });
+      }
+    })();
+  };
+
+  // /task 명령: 채팅에서 만든 할 일을 목록에 추가 (Google Tasks 연동 시 함께 동기화)
+  const handleCreateTaskFromChat = (title: string) => {
+    if (!currentUser) return;
+    const task: Omit<TaskItem, 'id'> = {
+      spaceId: activeSpaceId,
+      title,
+      assigneeId: currentUser.id,
+      assigneeName: currentUser.name,
+      assigneeAvatar: currentUser.avatar || '',
+      dueDate: '',
+      completed: false,
+      priority: 'medium',
+    };
+    handleAddTask(task);
+  };
+
+  // /remind 명령: 브라우저 알림 리마인더 예약 (새로고침해도 유지)
+  const [reminders, setReminders] = useState<Array<{ id: string; text: string; at: number }>>(() => {
+    try {
+      const raw = localStorage.getItem('workchat_reminders_v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const now = Date.now();
+    const timers = reminders
+      .filter((reminder) => reminder.at > now)
+      .map((reminder) =>
+        window.setTimeout(
+          () => {
+            notificationService.notify({ title: '⏰ 리마인더', body: reminder.text });
+            setReminders((prev) => {
+              const next = prev.filter((item) => item.id !== reminder.id);
+              try {
+                localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
+              } catch {
+                /* noop */
+              }
+              return next;
+            });
+          },
+          Math.min(reminder.at - now, 2 ** 31 - 1)
+        )
+      );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [reminders]);
+
+  const handleCreateReminder = (text: string, minutes: number) => {
+    const reminder = { id: `rem_${Date.now()}`, text, at: Date.now() + Math.max(1, minutes) * 60_000 };
+    const next = [...reminders, reminder];
+    setReminders(next);
+    try {
+      localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
+    } catch {
+      /* noop */
+    }
   };
 
   const handleToggleTask = (taskId: string) => {
     const nextTasks = tasks.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t));
     storage.saveTasks(nextTasks);
     setTasks(nextTasks);
+
+    const changed = nextTasks.find((task) => task.id === taskId);
+    if (changed?.googleTaskId) {
+      void updateGoogleTaskStatus(changed.googleTaskId, changed.completed);
+    }
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -1300,6 +1437,8 @@ export default function App() {
       onToggleNotifications={handleToggleNotifications}
       onOpenDriveView={handleOpenDriveSplit}
       onOpenYouTubeView={handleOpenYouTubeSplit}
+      onCreateTask={handleCreateTaskFromChat}
+      onCreateReminder={handleCreateReminder}
     />
   );
 
@@ -1447,6 +1586,53 @@ export default function App() {
         ))}
       </div>
 
+      {/* Google 로그인 오류 / 게스트 안내 배너 (화면 상단 고정) */}
+      <div className="fixed top-0 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pt-2 pointer-events-none">
+        {authError && (
+          <div className="pointer-events-auto w-full max-w-2xl px-4 py-2.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold flex items-start gap-2 shadow-lg animate-in slide-in-from-top-2">
+            <span className="flex-1 leading-relaxed">{authError}</span>
+            <button
+              type="button"
+              onClick={() => setAuthError('')}
+              className="text-[#991B1B] hover:text-[#7F1D1D] font-bold cursor-pointer"
+              aria-label="오류 안내 닫기"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {isGuest && !authError && showGuestBanner && (
+          <div className="pointer-events-auto w-full max-w-2xl px-3 py-2 rounded-xl bg-white/95 border border-[#EBE5DA] text-[11px] text-[#5C5046] flex items-center gap-2 shadow-md animate-in slide-in-from-top-2">
+            <span className="flex-1 leading-relaxed">
+              <strong className="text-[#2C2520]">게스트 모드</strong> — Google로 로그인하면 대화·할 일·문서가 내 계정에 안전하게 동기화됩니다.
+            </span>
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={authLoading}
+              className="px-2.5 py-1.5 rounded-lg bg-[#3E2723] hover:bg-[#2C2520] text-white text-[11px] font-bold cursor-pointer disabled:opacity-60 flex-shrink-0"
+            >
+              {authLoading ? '로그인 중…' : 'Google로 로그인'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowGuestBanner(false);
+                try {
+                  localStorage.setItem('workchat_guest_banner_dismissed', '1');
+                } catch {
+                  /* noop */
+                }
+              }}
+              className="text-[#A89A8E] hover:text-[#5C5046] font-bold cursor-pointer flex-shrink-0"
+              aria-label="안내 닫기"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 1. Left Sidebar (Google Chat in Cafe Beige theme) - Collapsible on demand */}
       <div
         className={`${
@@ -1481,6 +1667,8 @@ export default function App() {
           onLogout={handleLogout}
           onSwitchUser={handleLogin}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onGoogleSignIn={handleGoogleSignIn}
+          authLoading={authLoading}
           onToggleCollapse={() => setIsSidebarCollapsed(true)}
         />
       </div>
@@ -1779,7 +1967,8 @@ export default function App() {
                 <div className="w-full bg-white/95 rounded-xl p-2.5 border border-[#EBE5DA] shadow-xs group-hover:block transition-all">
                   <div className="flex items-center gap-2 mb-1.5">
                     <img
-                      src={latestMessage.senderAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                      src={avatarSrc(latestMessage.senderAvatar, latestMessage.senderName)}
+                      onError={handleAvatarError}
                       alt=""
                       className="w-5 h-5 rounded-md object-cover border border-[#EBE5DA]"
                     />

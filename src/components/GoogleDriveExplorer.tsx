@@ -27,6 +27,8 @@ import {
   createRealDriveDoc,
   deleteRealDriveFile,
   getAccessToken,
+  describeAuthError,
+  getLastAuthErrorCode,
   signInWithGoogleWorkspace
 } from '../services/googleWorkspace';
 
@@ -84,8 +86,9 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
         const localSaved = storage.getDriveDocuments().filter((d) => !d.id.startsWith('doc_recent_'));
         setDocs(localSaved);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Failed to fetch Drive files:', e);
+      showToast('Drive 파일을 불러오지 못했습니다. Google Drive 권한을 다시 연결해 주세요.');
     } finally {
       setIsLoading(false);
     }
@@ -218,18 +221,16 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
 
   const handleConnectGoogle = async () => {
     try {
-      await signInWithGoogleWorkspace();
-      loadDriveFiles();
+      const result = await signInWithGoogleWorkspace();
+      if (!result) {
+        showToast(describeAuthError(getLastAuthErrorCode()));
+        return;
+      }
+      await loadDriveFiles();
+      showToast('✓ Google Drive 권한이 연결되었습니다.');
     } catch (e: any) {
       console.warn('OAuth connect failed', e);
-      const message = String(e?.message || '');
-      if (message.includes('Firebase 설정이 없습니다')) {
-        showToast('먼저 설정(⚙) → Google 연동에서 본인 Firebase 설정을 저장해 주세요.');
-      } else if (message.includes('popup')) {
-        showToast('로그인 창이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요.');
-      } else {
-        showToast('Google Drive 연결에 실패했습니다. 설정의 Firebase 구성을 확인해 주세요.');
-      }
+      showToast(describeAuthError(String(e?.code || e?.message || '')));
     }
   };
 

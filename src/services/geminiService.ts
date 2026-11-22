@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { Message, DriveDocument, CalendarEvent, TaskItem } from '../types';
-import { getGeminiApiKey } from './appConfig';
+import { getGeminiApiKey, getYouTubeApiKey } from './appConfig';
 
 export interface GeminiFileAttachment {
   name: string;
@@ -236,26 +236,248 @@ export const assistDocumentWithGemini = async (params: {
   return MISSING_KEY_MESSAGE;
 };
 
-// 4. YouTube 검색 (서버 API 가 없으면 추천 목록)
+// 4. YouTube 검색 — 서버 없이 브라우저에서 직접 동작
 export interface YouTubeVideoItem {
   id: string;
   title: string;
   channel: string;
   duration?: string;
   category?: string;
+  description?: string;
+  publishedAt?: string;
+  views?: number;
 }
 
-export const searchYouTubeVideos = async (query: string): Promise<YouTubeVideoItem[]> => {
-  const serverData = await postToServer('/api/youtube/search', { query });
-  if (serverData && Array.isArray(serverData.results) && serverData.results.length > 0) {
-    return serverData.results;
+export interface YouTubeSearchResult {
+  items: YouTubeVideoItem[];
+  source: 'google' | 'piped' | 'invidious' | 'none';
+  error?: string;
+}
+
+const YOUTUBE_QUERY_CACHE = new Map<string, YouTubeSearchResult>();
+
+const formatDuration = (totalSeconds?: number | string): string | undefined => {
+  const seconds = typeof totalSeconds === 'string' ? Number(totalSeconds) : totalSeconds;
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return undefined;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const parseIsoDuration = (iso?: string): number | undefined => {
+  if (!iso) return undefined;
+  const match = iso.match(/PT(?:([\d.]+)H)?(?:([\d.]+)M)?(?:([\d.]+)S)?/);
+  if (!match) return undefined;
+  const [, h, m, s] = match;
+  return (Number(h || 0) * 3600) + (Number(m || 0) * 60) + Number(s || 0);
+};
+
+const withTimeout = async (url: string, init?: RequestInit, ms = 8000): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/** 1순위: YouTube Data API v3 (프로젝트 내장 키, 리퍼러 제한됨) */
+export const searchYouTubeWithDataApi = async (
+  query: string,
+  maxResults = 20,
+  order: 'relevance' | 'viewCount' | 'date' = 'relevance'
+): Promise<YouTubeVideoItem[]> => {
+  const key = getYouTubeApiKey();
+  if (!key) return [];
+  const url =
+    'https://www.googleapis.com/youtube/v3/search' +
+    `?part=snippet&type=video&maxResults=${maxResults}&order=${order}&regionCode=KR` +
+    `&q=${encodeURIComponent(query)}&key=${key}`;
+  const res = await withTimeout(url);
+  if (!res.ok) throw new Error(`YouTube Data API 오류 (HTTP ${res.status})`);
+  const data = await res.json();
+  const items: any[] = Array.isArray(data?.items) ? data.items : [];
+  const ids = items.map((it) => it?.id?.videoId).filter(Boolean);
+
+  let durations: Record<string, string | undefined> = {};
+  if (ids.length > 0) {
+    try {
+      const detailUrl =
+        'https://www.googleapis.com/youtube/v3/videos' +
+        `?part=contentDetails,statistics&id=${ids.join(',')}&key=${key}`;
+      const detailRes = await withTimeout(detailUrl);
+      if (detailRes.ok) {
+        const detailData = await detailRes.json();
+        (detailData?.items || []).forEach((v: any) => {
+          durations[v.id] = formatDuration(parseIsoDuration(v?.contentDetails?.duration));
+        });
+      }
+    } catch {
+      /* 길이 정보는 없어도 됨 */
+    }
   }
 
-  return [
-    { id: 'jfKfPfyJRdk', title: 'lofi hip hop radio - beats to relax/study to', channel: 'Lofi Girl', duration: 'LIVE', category: '음악' },
-    { id: '5qap5aO4i9A', title: '비 오는 날 창가 카페 집중 BGM', channel: 'Cafe Music BGM', duration: '3:24:10', category: '카페/휴식' },
-    { id: 'k1BneeJTDcU', title: 'Google Workspace 200% 활용 팁', channel: 'Google Workspace', duration: '14:20', category: '생산성' },
-  ];
+  return items
+    .map((it) => ({
+      id: String(it?.id?.videoId || ''),
+      title: String(it?.snippet?.title || ''),
+      channel: String(it?.snippet?.channelTitle || ''),
+      description: String(it?.snippet?.description || ''),
+      publishedAt: it?.snippet?.publishedAt,
+      duration: durations[it?.id?.videoId],
+    }))
+    .filter((v) => v.id && v.title);
+};
+
+/** 2순위: Piped 공개 API (키 없이 동작, CORS 허용) */
+const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://pipedapi.leptons.xyz',
+];
+
+const searchWithPiped = async (query: string): Promise<YouTubeVideoItem[]> => {
+  for (const base of PIPED_INSTANCES) {
+    try {
+      const res = await withTimeout(`${base}/search?q=${encodeURIComponent(query)}&filter=videos`, undefined, 6000);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items: any[] = Array.isArray(data?.items) ? data.items : [];
+      const parsed = items
+        .map((it) => {
+          const id = String(it?.url || '').replace(/^.*v=/, '');
+          return {
+            id,
+            title: String(it?.title || ''),
+            channel: String(it?.uploaderName || ''),
+            duration: formatDuration(it?.duration),
+            views: typeof it?.views === 'number' ? it.views : undefined,
+          };
+        })
+        .filter((v) => /^[a-zA-Z0-9_-]{11}$/.test(v.id) && v.title);
+      if (parsed.length > 0) return parsed;
+    } catch {
+      /* 다음 인스턴스 시도 */
+    }
+  }
+  return [];
+};
+
+/** 3순위: Invidious 공개 API */
+const INVIDIOUS_INSTANCES = [
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
+  'https://yewtu.be',
+];
+
+const searchWithInvidious = async (query: string): Promise<YouTubeVideoItem[]> => {
+  for (const base of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await withTimeout(
+        `${base}/api/v1/search?q=${encodeURIComponent(query)}&type=video&region=KR`,
+        undefined,
+        6000
+      );
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items: any[] = Array.isArray(data) ? data : [];
+      const parsed = items
+        .filter((it) => it?.videoId)
+        .map((it) => ({
+          id: String(it.videoId),
+          title: String(it.title || ''),
+          channel: String(it.author || ''),
+          duration: formatDuration(it.lengthSeconds),
+          views: typeof it.viewCount === 'number' ? it.viewCount : undefined,
+        }))
+        .filter((v) => v.title);
+      if (parsed.length > 0) return parsed;
+    } catch {
+      /* 다음 인스턴스 시도 */
+    }
+  }
+  return [];
+};
+
+/**
+ * 실제 YouTube 검색: Data API → Piped → Invidious 순으로 시도합니다.
+ * 모두 실패하면 빈 목록과 안내 문구를 돌려줍니다(가짜 결과를 보여주지 않음).
+ */
+export const searchYouTubeVideosDetailed = async (query: string): Promise<YouTubeSearchResult> => {
+  const clean = (query || '').trim();
+  if (!clean) return { items: [], source: 'none' };
+  const cached = YOUTUBE_QUERY_CACHE.get(clean);
+  if (cached) return cached;
+
+  let apiError = '';
+  try {
+    const items = await searchYouTubeWithDataApi(clean);
+    if (items.length > 0) {
+      const result: YouTubeSearchResult = { items, source: 'google' };
+      YOUTUBE_QUERY_CACHE.set(clean, result);
+      return result;
+    }
+    apiError = 'YouTube Data API가 결과를 반환하지 않았습니다.';
+  } catch (error: any) {
+    apiError = String(error?.message || error);
+  }
+
+  const piped = await searchWithPiped(clean);
+  if (piped.length > 0) {
+    const result: YouTubeSearchResult = { items: piped, source: 'piped' };
+    YOUTUBE_QUERY_CACHE.set(clean, result);
+    return result;
+  }
+
+  const invidious = await searchWithInvidious(clean);
+  if (invidious.length > 0) {
+    const result: YouTubeSearchResult = { items: invidious, source: 'invidious' };
+    YOUTUBE_QUERY_CACHE.set(clean, result);
+    return result;
+  }
+
+  return {
+    items: [],
+    source: 'none',
+    error:
+      apiError ||
+      '검색 서버에 연결하지 못했습니다. 잠시 후 다시 시도하거나 아래에 유튜브 링크를 직접 붙여넣어 주세요.',
+  };
+};
+
+/** 하위 호환: 목록만 필요한 곳에서 사용 */
+export const searchYouTubeVideos = async (query: string): Promise<YouTubeVideoItem[]> => {
+  const result = await searchYouTubeVideosDetailed(query);
+  return result.items;
+};
+
+/** 실시간 인기 영상 (첫 화면용) */
+export const fetchYouTubeTrending = async (maxResults = 12): Promise<YouTubeVideoItem[]> => {
+  const key = getYouTubeApiKey();
+  if (!key) return [];
+  try {
+    const url =
+      'https://www.googleapis.com/youtube/v3/videos' +
+      `?part=snippet,contentDetails&chart=mostPopular&maxResults=${maxResults}&regionCode=KR&key=${key}`;
+    const res = await withTimeout(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.items || [])
+      .map((it: any) => ({
+        id: String(it.id),
+        title: String(it?.snippet?.title || ''),
+        channel: String(it?.snippet?.channelTitle || ''),
+        duration: formatDuration(parseIsoDuration(it?.contentDetails?.duration)),
+        publishedAt: it?.snippet?.publishedAt,
+      }))
+      .filter((v: YouTubeVideoItem) => v.id && v.title);
+  } catch {
+    return [];
+  }
 };
 
 // 5. 스마트 컴포즈 추천

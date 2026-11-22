@@ -23,6 +23,7 @@ import { Message, User, TaskItem } from '../types';
 import { syncTaskToGoogle, updateGoogleTaskStatus, syncEventToGoogle } from '../services/googleWorkspace';
 import { GoogleWorkspaceEditor } from './GoogleWorkspaceEditor';
 import { storage } from '../storage';
+import { avatarSrc, handleAvatarError } from './UserAvatar';
 
 /* 1. THREAD PANEL (인라인 스레드 답장) */
 interface ThreadPanelProps {
@@ -66,7 +67,8 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
         <div className="p-3.5 rounded-2xl bg-white border border-[#EBE5DA] cafe-shadow">
           <div className="flex items-center gap-2">
             <img
-              src={message.senderAvatar}
+              src={avatarSrc(message.senderAvatar, message.senderName)}
+              onError={handleAvatarError}
               alt={message.senderName}
               className="w-7 h-7 rounded-lg object-cover"
             />
@@ -85,7 +87,8 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
             {message.replies.map((reply) => (
               <div key={reply.id} className="flex items-start gap-2.5">
                 <img
-                  src={reply.senderAvatar}
+                  src={avatarSrc(reply.senderAvatar, reply.senderName)}
+                  onError={handleAvatarError}
                   alt={reply.senderName}
                   className="w-7 h-7 rounded-lg object-cover mt-0.5"
                 />

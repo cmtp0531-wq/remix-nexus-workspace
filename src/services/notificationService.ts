@@ -144,7 +144,7 @@ class NotificationService {
       try {
         const notif = new Notification(options.title, {
           body: options.body,
-          icon: options.icon || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=128&auto=format&fit=crop&q=80',
+          icon: options.icon || undefined,
           tag: options.tag || 'workchat-msg',
           silent: false,
         });

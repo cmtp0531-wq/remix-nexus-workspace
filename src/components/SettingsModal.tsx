@@ -133,6 +133,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const data: Record<string, string> = parsed?.data && typeof parsed.data === 'object' ? parsed.data : {};
+        const keys = Object.keys(data).filter(
+          (key) => (key.startsWith('workchat_') || key.startsWith('gchat_')) && typeof data[key] === 'string'
+        );
+        if (keys.length === 0) {
+          setDataMessage('백업 파일에서 복원할 데이터를 찾지 못했습니다.');
+          return;
+        }
+        const confirmed = window.confirm(
+          `백업 파일에서 ${keys.length}개 항목을 복원할까요? 지금 이 브라우저의 같은 항목은 덮어써집니다.`
+        );
+        if (!confirmed) return;
+        keys.forEach((key) => localStorage.setItem(key, data[key]));
+        setDataMessage('✓ 백업을 복원했습니다. 새로고침하면 반영됩니다.');
+      } catch {
+        setDataMessage('백업 파일을 읽지 못했습니다. 올바른 WorkChat 백업 JSON인지 확인해 주세요.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleResetData = () => {
     const confirmed = window.confirm(
       '이 브라우저에 저장된 워크챗 데이터(대화·문서·할 일)를 모두 지울까요? 되돌릴 수 없습니다.'
@@ -396,11 +425,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {dataMessage && <p className="mt-2 text-[11px] text-[#5C5046]">{dataMessage}</p>}
               </div>
 
-              <div className="rounded-2xl border border-[#EBE5DA] bg-[#F7F5F0] p-4 text-[11px] text-[#7A6A5C] leading-5 flex items-start gap-2">
-                <Upload className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                <span>
-                  백업 파일은 다시 불러오기(import) 지원이 준비 중입니다. 지금은 내려받아 보관만 해 두세요.
-                </span>
+              <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4">
+                <div className="flex items-center gap-2 font-bold text-sm">
+                  <Upload className="w-4 h-4 text-[#8D5B4C]" />
+                  백업 파일 불러오기
+                </div>
+                <p className="text-[12px] text-[#7A6A5C] leading-5 mt-1.5">
+                  내려받아 둔 JSON 백업 파일을 선택하면 대화·문서·할 일이 이 브라우저로 복원됩니다.
+                </p>
+                <label className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EFE6] text-[#3E2723] text-xs font-bold hover:bg-[#EBE5DA] cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  백업 파일 선택
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={handleImportData}
+                  />
+                </label>
               </div>
             </section>
           )}

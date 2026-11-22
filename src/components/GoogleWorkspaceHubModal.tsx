@@ -22,6 +22,8 @@ import {
 import { User, Space, DriveDocument, TaskItem, CalendarEvent } from '../types';
 import { 
   signInWithGoogleWorkspace, 
+  describeAuthError,
+  getLastAuthErrorCode,
   createGoogleCalendarWebLink,
   createGoogleMeetWebLink,
   setAccessTokenInMemory
@@ -83,25 +85,20 @@ export const GoogleWorkspaceHubModal: React.FC<GoogleWorkspaceHubModalProps> = (
     setStatusMessage(null);
     try {
       const res = await signInWithGoogleWorkspace();
-      if (res) {
-        const updatedUser: User = {
-          ...currentUser,
-          googleConnected: true,
-          email: res.user.email || currentUser.email,
-        };
-        onUpdateCurrentUser(updatedUser);
-        storage.setCurrentUser(updatedUser);
-        setStatusMessage('✓ Google Workspace (Drive, Gmail, Tasks, Calendar) 연동이 성공적으로 활성화되었습니다!');
+      if (!res) {
+        setStatusMessage(`⚠️ ${describeAuthError(getLastAuthErrorCode())}`);
+        return;
       }
-    } catch (e: any) {
       const updatedUser: User = {
         ...currentUser,
         googleConnected: true,
+        email: res.user.email || currentUser.email,
       };
       onUpdateCurrentUser(updatedUser);
       storage.setCurrentUser(updatedUser);
-      setAccessTokenInMemory('simulated_verified_workspace_token');
-      setStatusMessage('✓ Google Workspace 실시간 연동이 정상 활성화되었습니다!');
+      setStatusMessage('✓ Google Workspace (Drive, Gmail, Tasks, Calendar) 연동이 활성화되었습니다.');
+    } catch (e: any) {
+      setStatusMessage(`⚠️ ${describeAuthError(String(e?.code || e?.message || ''))}`);
     } finally {
       setIsConnecting(false);
     }

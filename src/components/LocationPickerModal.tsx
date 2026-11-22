@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   MapPin,
   Navigation,
@@ -6,13 +6,20 @@ import {
   Check,
   Search,
   ExternalLink,
-  Sparkles,
   RefreshCw,
-  Radio,
   Compass,
-  Layers
+  Loader2,
+  LocateFixed,
+  AlertCircle,
 } from 'lucide-react';
 import { LocationAttachment } from '../types';
+import {
+  buildGoogleMapsLink,
+  buildMapEmbedUrl,
+  describeGeoError,
+  getCurrentLocation,
+  searchPlaces,
+} from '../services/locationService';
 
 interface LocationPickerModalProps {
   isOpen: boolean;
@@ -20,126 +27,110 @@ interface LocationPickerModalProps {
   onShareLocation: (loc: LocationAttachment) => void;
 }
 
-const PRESET_PLACES = [
-  { name: '강남역 협업 라운지', address: '서울특별시 강남구 강남대로 396', lat: 37.4979, lng: 127.0276 },
-  { name: '판교 테크노밸리 이노베이션 랩', address: '경기도 성남시 분당구 판교역로 146', lat: 37.3948, lng: 127.1114 },
-  { name: '성수동 카페거리 미팅룸', address: '서울특별시 성동구 연무장길 36', lat: 37.5446, lng: 127.0560 },
-  { name: '여의도 금융센터 비즈니스 허브', address: '서울특별시 영등포구 여의대로 108', lat: 37.5255, lng: 126.9257 },
-  { name: '광화문 세종대로 코워킹 스페이스', address: '서울특별시 종로구 세종대로 172', lat: 37.5724, lng: 126.9769 },
-  { name: '홍대입구 크리에이티브 스튜디오', address: '서울특별시 마포구 양화로 160', lat: 37.5563, lng: 126.9237 },
-];
+interface SearchResult {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+}
 
 export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
   isOpen,
   onClose,
   onShareLocation,
 }) => {
-  const [isLoadingGps, setIsLoadingGps] = useState(false);
-  const [trackingSource, setTrackingSource] = useState<'gps' | 'network' | 'preset' | 'search'>('preset');
-  const [statusNote, setStatusNote] = useState<string>('Google 지도 연동 준비 완료');
-
-  const [selectedLocation, setSelectedLocation] = useState<LocationAttachment>({
-    type: 'location',
-    name: '강남역 협업 라운지',
-    address: '서울특별시 강남구 강남대로 396 (강남역 2번 출구 앞)',
-    lat: 37.4979,
-    lng: 127.0276,
-    accuracyMeters: 5,
-  });
+  const [selected, setSelected] = useState<LocationAttachment | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const [statusNote, setStatusNote] = useState('현재 위치를 확인하는 중…');
+  const [source, setSource] = useState<'gps' | 'search' | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<Array<{ name: string; address: string; lat: number; lng: number }>>([]);
-  const [mapType, setMapType] = useState<'google' | 'osm'>('google');
+  const [searchError, setSearchError] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [mapProvider, setMapProvider] = useState<'google' | 'osm'>('google');
+  const requestedRef = useRef(false);
 
-  // Request GPS non-blockingly on open
-  useEffect(() => {
-    if (isOpen) {
-      tryGetGpsNonBlocking();
+  /** GPS 자동 수신 (모달이 열리면 사용자가 버튼을 누르지 않아도 바로 요청) */
+  const locateNow = useCallback(async (isAuto = false) => {
+    setIsLocating(true);
+    if (!isAuto) setLocationError('');
+    try {
+      const loc = await getCurrentLocation();
+      setSelected({
+        type: 'location',
+        name: loc.name,
+        address: loc.address,
+        lat: loc.lat,
+        lng: loc.lng,
+        accuracyMeters: loc.accuracy,
+      });
+      setSource('gps');
+      setStatusNote(
+        loc.accuracy > 0
+          ? `✓ GPS 현재 위치 수신 완료 (오차 ±${loc.accuracy}m)`
+          : '✓ GPS 현재 위치 수신 완료'
+      );
+      setLocationError('');
+    } catch (error) {
+      setLocationError(describeGeoError(error));
+      setStatusNote('위치 권한을 허용하면 현재 위치가 자동으로 표시됩니다');
+    } finally {
+      setIsLocating(false);
     }
-  }, [isOpen]);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      requestedRef.current = false;
+      return;
+    }
+    if (requestedRef.current) return;
+    requestedRef.current = true;
+    void locateNow(true);
+  }, [isOpen, locateNow]);
 
   if (!isOpen) return null;
 
-  // Non-blocking GPS attempt
-  const tryGetGpsNonBlocking = () => {
-    if (!('geolocation' in navigator)) return;
-    setIsLoadingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const accuracy = Math.round(pos.coords.accuracy || 10);
-        setSelectedLocation((prev) => ({
-          ...prev,
-          name: '내 실시간 GPS 위치',
-          address: `현재 사용자 좌표 (위도 ${lat.toFixed(4)}, 경도 ${lng.toFixed(4)})`,
-          lat,
-          lng,
-          accuracyMeters: accuracy,
-        }));
-        setTrackingSource('gps');
-        setStatusNote(`✓ 실시간 GPS 수신 성공 (오차범위 ±${accuracy}m)`);
-        setIsLoadingGps(false);
-      },
-      (err) => {
-        setIsLoadingGps(false);
-        // keep current preset safely
-      },
-      { timeout: 3000, enableHighAccuracy: false }
-    );
-  };
-
-  // Search address / place
-  const handleSearchSubmit = async (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-
+    const query = searchQuery.trim();
+    if (!query) return;
     setIsSearching(true);
-    setSearchResults([]);
+    setSearchError('');
+    setResults([]);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery.trim())}&limit=5`,
-        { headers: { 'Accept-Language': 'ko,en' } }
-      );
-      if (res.ok) {
-        const list = await res.json();
-        const parsed = list.map((item: any) => ({
-          name: item.display_name.split(',')[0] || searchQuery,
-          address: item.display_name,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon),
-        }));
-        setSearchResults(parsed);
-        if (parsed.length > 0) {
-          const first = parsed[0];
-          setSelectedLocation({
-            type: 'location',
-            name: first.name,
-            address: first.address,
-            lat: first.lat,
-            lng: first.lng,
-            accuracyMeters: 5,
-          });
-          setTrackingSource('search');
-          setStatusNote(`✓ 검색 위치 선택: ${first.name}`);
-        }
+      const found = await searchPlaces(query);
+      setResults(found);
+      if (found.length === 0) {
+        setSearchError('검색 결과가 없습니다. 다른 검색어로 시도해 주세요.');
       }
-    } catch (e) {
-      console.warn('Search query error', e);
+    } catch (error: any) {
+      setSearchError(String(error?.message || '장소 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.'));
     } finally {
       setIsSearching(false);
     }
   };
 
-  const handleConfirm = () => {
-    onShareLocation(selectedLocation);
-    onClose();
+  const handlePick = (place: SearchResult) => {
+    setSelected({
+      type: 'location',
+      name: place.name,
+      address: place.address,
+      lat: place.lat,
+      lng: place.lng,
+      accuracyMeters: 5,
+    });
+    setSource('search');
+    setStatusNote(`✓ 검색한 장소 선택: ${place.name}`);
   };
 
-  // Embed map URL (Google Maps or OpenStreetMap)
-  const googleMapEmbedUrl = `https://maps.google.com/maps?q=${selectedLocation.lat},${selectedLocation.lng}&z=15&output=embed`;
-  const osmMapEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${selectedLocation.lng - 0.008}%2C${selectedLocation.lat - 0.005}%2C${selectedLocation.lng + 0.008}%2C${selectedLocation.lat + 0.005}&layer=mapnik&marker=${selectedLocation.lat}%2C${selectedLocation.lng}`;
+  const handleConfirm = () => {
+    if (!selected) return;
+    onShareLocation(selected);
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs select-none animate-in fade-in duration-150">
@@ -152,33 +143,54 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-[#2C2520]">Google 지도 실시간 위치 공유</h3>
+                <h3 className="text-sm font-bold text-[#2C2520]">현재 위치 공유</h3>
                 <span className="px-2 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[10px] font-bold">
-                  {trackingSource === 'gps' ? '실시간 GPS' : '위치 선택됨'}
+                  {source === 'gps' ? 'GPS' : source === 'search' ? '검색 위치' : '위치 확인 중'}
                 </span>
               </div>
               <p className="text-[11px] text-[#7A6A5C]">
-                지도를 검색하거나 선택하여 대화방 멤버들에게 대화형 지도로 공유하세요
+                위치 권한을 허용하면 현재 위치가 자동으로 표시되고, 대화방에 지도로 공유할 수 있습니다
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-[#7A6A5C] hover:bg-[#F4EFE6] cursor-pointer"
-          >
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[#7A6A5C] hover:bg-[#F4EFE6] cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearchSubmit} className="flex gap-2">
+        {/* GPS status */}
+        <div className="flex items-start gap-2 text-[11px] rounded-xl border border-[#EBE5DA] bg-[#FDFBF7] px-3 py-2">
+          {isLocating ? (
+            <Loader2 className="w-4 h-4 text-[#C18C5D] animate-spin flex-shrink-0 mt-0.5" />
+          ) : locationError ? (
+            <AlertCircle className="w-4 h-4 text-[#B45309] flex-shrink-0 mt-0.5" />
+          ) : (
+            <LocateFixed className="w-4 h-4 text-[#15803D] flex-shrink-0 mt-0.5" />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-[#5C5046]">{statusNote}</div>
+            {locationError && <div className="text-[#8C6B3F] mt-0.5 leading-relaxed">{locationError}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={() => void locateNow(false)}
+            disabled={isLocating}
+            className="px-2 py-1 rounded-lg bg-white border border-[#EBE5DA] text-[10px] font-bold text-[#5C5046] hover:bg-[#F4EFE6] cursor-pointer disabled:opacity-50 flex items-center gap-1 flex-shrink-0"
+          >
+            <RefreshCw className={`w-3 h-3 ${isLocating ? 'animate-spin' : ''}`} />
+            다시 확인
+          </button>
+        </div>
+
+        {/* Search */}
+        <form onSubmit={handleSearch} className="flex gap-2">
           <div className="flex-1 relative flex items-center">
             <Search className="w-4 h-4 text-[#A89A8E] absolute left-3 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="장소나 주소 검색 (예: 강남역, 판교 테크노밸리, 성수동 카페...)"
+              placeholder="장소나 주소 검색 (예: 강남역, 판교역, 성수동 카페)"
               className="w-full pl-9 pr-3 py-2 bg-[#FDFBF7] border border-[#EBE5DA] rounded-xl text-xs text-[#2C2520] focus:outline-none focus:border-[#EA4335]"
             />
           </div>
@@ -192,110 +204,93 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           </button>
         </form>
 
-        {/* Selected Location Card */}
-        <div className="p-3.5 rounded-xl bg-[#FDFBF7] border border-[#EBE5DA] flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#15803D] animate-pulse" />
-              <div className="text-xs font-bold text-[#2C2520]">
-                {selectedLocation.name}
-              </div>
-            </div>
+        {searchError && (
+          <div className="text-[11px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-3 py-2">
+            {searchError}
+          </div>
+        )}
 
-            <div className="flex items-center gap-2">
+        {results.length > 0 && (
+          <div className="max-h-40 overflow-y-auto rounded-xl border border-[#EBE5DA] divide-y divide-[#F4EFE6]">
+            {results.map((place) => (
+              <button
+                key={`${place.lat},${place.lng},${place.name}`}
+                type="button"
+                onClick={() => handlePick(place)}
+                className="w-full text-left px-3 py-2 hover:bg-[#FAF7F2] cursor-pointer"
+              >
+                <div className="text-xs font-semibold text-[#2C2520] truncate">{place.name}</div>
+                <div className="text-[10px] text-[#8C7A6B] truncate">{place.address}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Selected location */}
+        {selected ? (
+          <div className="p-3.5 rounded-xl bg-[#FDFBF7] border border-[#EBE5DA] flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#15803D] animate-pulse flex-shrink-0" />
+                <div className="text-xs font-bold text-[#2C2520] truncate">{selected.name}</div>
+              </div>
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${selectedLocation.lat},${selectedLocation.lng}`}
+                href={buildGoogleMapsLink(selected.lat, selected.lng)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[11px] text-[#1A73E8] font-bold hover:underline flex items-center gap-1"
+                className="text-[11px] text-[#1A73E8] font-bold hover:underline flex items-center gap-1 flex-shrink-0"
               >
-                <span>Google Maps에서 열기</span>
+                <span>지도에서 열기</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
-              <button
-                type="button"
-                onClick={tryGetGpsNonBlocking}
-                className="px-2 py-1 rounded-lg bg-white border border-[#EBE5DA] text-[10px] font-bold text-[#5C5046] hover:bg-[#F4EFE6] cursor-pointer"
-              >
-                GPS 수신
-              </button>
+            </div>
+
+            <div className="text-xs text-[#5C5046] flex items-center gap-1.5 bg-white p-2 rounded-lg border border-[#EBE5DA]">
+              <Compass className="w-3.5 h-3.5 text-[#C18C5D] flex-shrink-0" />
+              <span className="truncate">{selected.address}</span>
+            </div>
+
+            <div className="text-[10px] text-[#A89A8E] flex items-center justify-between font-mono">
+              <span>
+                좌표: {selected.lat.toFixed(5)}, {selected.lng.toFixed(5)}
+              </span>
+              {typeof selected.accuracyMeters === 'number' && selected.accuracyMeters > 0 && (
+                <span className="text-[#15803D] font-bold">오차 ±{selected.accuracyMeters}m</span>
+              )}
             </div>
           </div>
-
-          <div className="text-xs text-[#5C5046] flex items-center gap-1.5 bg-white p-2 rounded-lg border border-[#EBE5DA]">
-            <Compass className="w-3.5 h-3.5 text-[#C18C5D] flex-shrink-0" />
-            <span className="truncate">{selectedLocation.address}</span>
+        ) : (
+          <div className="p-6 rounded-xl bg-[#FDFBF7] border border-dashed border-[#EBE5DA] text-center text-xs text-[#8C7A6B]">
+            아직 위치가 없습니다. 위치 권한을 허용하거나 위에서 장소를 검색해 주세요.
           </div>
+        )}
 
-          <div className="text-[10px] text-[#A89A8E] flex items-center justify-between font-mono">
-            <span>좌표: {selectedLocation.lat.toFixed(5)}, {selectedLocation.lng.toFixed(5)}</span>
-            <span className="text-[#15803D] font-bold">{statusNote}</span>
+        {/* Map */}
+        {selected && (
+          <div className="relative w-full h-56 rounded-xl overflow-hidden border border-[#EBE5DA] shadow-xs bg-[#F4EFE6]">
+            <iframe
+              title="위치 지도"
+              src={buildMapEmbedUrl(selected.lat, selected.lng, mapProvider)}
+              className="w-full h-full border-none"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+            <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-xs px-2 py-1 rounded-lg text-[10px] font-bold text-[#2C2520] border border-[#EBE5DA] shadow-xs">
+              <button
+                type="button"
+                onClick={() => setMapProvider(mapProvider === 'google' ? 'osm' : 'google')}
+                className="text-[#1A73E8] hover:underline cursor-pointer"
+              >
+                {mapProvider === 'google' ? 'Google 지도' : 'OpenStreetMap'}
+              </button>
+            </div>
+            <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-mono text-[#2C2520] border border-[#EBE5DA] shadow-xs">
+              📍 {selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Interactive Map Iframe View */}
-        <div className="relative w-full h-56 rounded-xl overflow-hidden border border-[#EBE5DA] shadow-xs bg-[#F4EFE6]">
-          <iframe
-            title="Google Map View"
-            src={mapType === 'google' ? googleMapEmbedUrl : osmMapEmbedUrl}
-            className="w-full h-full border-none"
-            loading="lazy"
-          />
-
-          <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-xs px-2 py-1 rounded-lg text-[10px] font-bold text-[#2C2520] border border-[#EBE5DA] shadow-xs flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setMapType(mapType === 'google' ? 'osm' : 'google')}
-              className="text-[#1A73E8] hover:underline"
-            >
-              {mapType === 'google' ? 'Google 지도' : 'OpenStreetMap'}
-            </button>
-          </div>
-
-          <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-mono text-[#2C2520] border border-[#EBE5DA] shadow-xs">
-            📍 {selectedLocation.lat.toFixed(4)}, {selectedLocation.lng.toFixed(4)}
-          </div>
-        </div>
-
-        {/* Quick Co-working / Meeting Place Presets */}
-        <div>
-          <label className="text-[11px] font-bold text-[#5C5046] block mb-1.5">
-            주요 협업 거점 빠른 선택 (1클릭):
-          </label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-            {PRESET_PLACES.map((p) => {
-              const isSelected = selectedLocation.name === p.name;
-              return (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => {
-                    setSelectedLocation({
-                      type: 'location',
-                      name: p.name,
-                      address: p.address,
-                      lat: p.lat,
-                      lng: p.lng,
-                      accuracyMeters: 5,
-                    });
-                    setTrackingSource('preset');
-                    setStatusNote(`✓ 거점 선택: ${p.name}`);
-                  }}
-                  className={`p-2 rounded-xl text-left border text-xs transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#E6DCD0] border-[#C18C5D] text-[#3E2723] font-bold shadow-xs'
-                      : 'bg-[#FDFBF7] hover:bg-[#F4EFE6] border-[#EBE5DA] text-[#4A3E34]'
-                  }`}
-                >
-                  <div className="truncate font-semibold">{p.name}</div>
-                  <div className="text-[10px] text-[#A89A8E] truncate">{p.address}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Footer Actions */}
+        {/* Footer */}
         <div className="pt-3 border-t border-[#EBE5DA] flex items-center justify-end gap-2">
           <button
             type="button"
@@ -307,7 +302,8 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           <button
             type="button"
             onClick={handleConfirm}
-            className="px-4 py-2 rounded-xl bg-[#EA4335] hover:bg-[#D93025] text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            disabled={!selected}
+            className="px-4 py-2 rounded-xl bg-[#EA4335] hover:bg-[#D93025] text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           >
             <Navigation className="w-3.5 h-3.5" />
             <span>이 위치로 채팅방에 공유하기</span>

@@ -3,6 +3,10 @@ import { getFirestore, collection, doc, onSnapshot, orderBy, query, setDoc, getD
 import { 
   getAuth, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
+  linkWithPopup,
+  reauthenticateWithPopup,
   GoogleAuthProvider, 
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -10,21 +14,20 @@ import {
 } from 'firebase/auth';
 import { getStoredFirebaseConfig } from './appConfig';
 
-// Firebase 는 "선택" 입니다.
-// 사용자가 설정 모달에서 본인의 Firebase 설정을 입력한 경우에만 초기화되며,
-// 설정이 없으면 게스트(로컬) 모드로 앱이 그대로 동작합니다.
+// Firebase 설정은 앱에 내장되어 있습니다(config/firebase.ts).
+// 사용자가 설정 모달에서 다른 프로젝트 설정을 저장하면 그 값이 우선합니다.
 const activeFirebaseConfig = getStoredFirebaseConfig();
 
-export const firebaseApp = activeFirebaseConfig
-  ? getApps().length === 0
-    ? initializeApp(activeFirebaseConfig)
-    : getApp()
-  : null;
+export const firebaseApp = getApps().length === 0
+  ? initializeApp(activeFirebaseConfig)
+  : getApp();
 
-export const auth = firebaseApp ? getAuth(firebaseApp) : null;
-export const firestore = firebaseApp
-  ? getFirestore(firebaseApp, activeFirebaseConfig?.firestoreDatabaseId || '(default)')
-  : null;
+export const auth = getAuth(firebaseApp);
+export const firestore = getFirestore(firebaseApp, activeFirebaseConfig.firestoreDatabaseId || '(default)');
+
+/** 마지막 로그인/연동 실패 사유 (UI 토스트에서 사용) */
+let lastAuthErrorCode = '';
+export const getLastAuthErrorCode = () => lastAuthErrorCode;
 
 /** 구글(Firebase) 로그인이 연결되어 있는지 여부 */
 export const isGoogleSignedIn = (): boolean => Boolean(auth?.currentUser);
@@ -34,7 +37,6 @@ export const getSignedInUser = (): FirebaseUser | null => auth?.currentUser ?? n
 
 export const signOutGoogle = async (): Promise<void> => {
   setAccessTokenInMemory(null);
-  if (!auth) return;
   try {
     await firebaseSignOut(auth);
   } catch (error) {
@@ -46,6 +48,8 @@ export const signOutGoogle = async (): Promise<void> => {
 import { DriveDocument, GmailMessageSummary, GmailMessageDetail, DriveFileType } from '../types';
 
 // Workspace Scopes for Real Drive, Docs, Gmail, Calendar, Tasks
+// 로그인 자체는 이메일/프로필 범위만 요청하고, Gmail·Drive 등은 사용자가 해당 기능을 처음 열 때
+// 추가 동의(connectGoogleWorkspace)를 받습니다. 그래야 로그인이 스코프 검증에 막히지 않습니다.
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/documents',
@@ -58,8 +62,17 @@ export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.profile'
 ];
 
+/** 기본 로그인용 provider (이메일·프로필만) */
 export const workspaceProvider = new GoogleAuthProvider();
-WORKSPACE_SCOPES.forEach((scope) => workspaceProvider.addScope(scope));
+workspaceProvider.setCustomParameters({ prompt: 'select_account' });
+
+/** Gmail·Drive·Calendar 등 실제 워크스페이스 기능용 provider */
+export const createWorkspaceProvider = (): GoogleAuthProvider => {
+  const provider = new GoogleAuthProvider();
+  WORKSPACE_SCOPES.forEach((scope) => provider.addScope(scope));
+  provider.setCustomParameters({ prompt: 'consent', include_granted_scopes: 'true' });
+  return provider;
+};
 
 // Session-backed token cache
 const TOKEN_SESSION_KEY = 'gchat_workspace_oauth_token';
@@ -81,18 +94,81 @@ export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
+/** 구글 로그인 (팝업 차단 시 리다이렉트로 자동 전환) */
 export const signInWithGoogleAccount = async (): Promise<FirebaseUser> => {
-  if (!auth) {
-    const error: any = new Error('Firebase 설정이 없습니다. 설정 → Google 연동에서 본인 Firebase 설정을 먼저 입력해 주세요.');
-    error.code = 'workchat/no-firebase-config';
+  try {
+    lastAuthErrorCode = '';
+    const result = await signInWithPopup(auth, workspaceProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) setAccessTokenInMemory(credential.accessToken);
+    return result.user;
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    lastAuthErrorCode = code;
+    if (code.includes('popup-blocked') || code.includes('cancelled-popup-request')) {
+      // 팝업이 막히면 리다이렉트 방식으로 이어서 진행합니다 (새로고침 후 로그인 완료).
+      try {
+        await signInWithRedirect(auth, workspaceProvider);
+      } catch (redirectError) {
+        console.warn('[Auth] redirect fallback failed:', redirectError);
+      }
+    }
     throw error;
   }
-  const result = await signInWithPopup(auth, workspaceProvider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  if (credential?.accessToken) {
-    setAccessTokenInMemory(credential.accessToken);
+};
+
+/** 리다이렉트 로그인 결과 복원 (앱 시작 시 1회) */
+export const completeRedirectSignIn = async (): Promise<FirebaseUser | null> => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result) return null;
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) setAccessTokenInMemory(credential.accessToken);
+    return result.user;
+  } catch (error: any) {
+    lastAuthErrorCode = String(error?.code || '');
+    console.warn('[Auth] redirect result failed:', error);
+    return null;
   }
-  return result.user;
+};
+
+/**
+ * Gmail·Drive·Calendar·Tasks 실제 접근 권한(스코프)을 추가로 요청합니다.
+ * 이미 로그인한 계정에 대해 증분 동의를 받고 액세스 토큰을 반환합니다.
+ */
+export const connectGoogleWorkspace = async (): Promise<string> => {
+  const provider = createWorkspaceProvider();
+  const current = auth.currentUser;
+  if (!current) {
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) throw new Error('Google 인증 토큰을 받지 못했습니다.');
+    setAccessTokenInMemory(credential.accessToken);
+    return credential.accessToken;
+  }
+
+  try {
+    const result = await linkWithPopup(current, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      setAccessTokenInMemory(credential.accessToken);
+      return credential.accessToken;
+    }
+    throw new Error('Google 인증 토큰을 받지 못했습니다.');
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    // 이미 연결된 provider 인 경우 재인증 팝업으로 스코프를 추가합니다.
+    if (code.includes('provider-already-linked') || code.includes('credential-already-in-use')) {
+      const result = await reauthenticateWithPopup(current, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setAccessTokenInMemory(credential.accessToken);
+        return credential.accessToken;
+      }
+    }
+    lastAuthErrorCode = code;
+    throw error;
+  }
 };
 
 export const observeFirebaseAuth = (callback: (user: FirebaseUser | null) => void) => {
@@ -188,24 +264,39 @@ export const signInWithGoogleWorkspace = async (): Promise<{
 } | null> => {
   try {
     isSigningIn = true;
-    if (!auth) throw new Error('Firebase 설정이 없습니다.');
-    const result = await signInWithPopup(auth, workspaceProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Google OAuth 인증 토큰을 수신하지 못했습니다.');
-    }
-    cachedAccessToken = credential.accessToken;
-    setAccessTokenInMemory(cachedAccessToken);
-    return {
-      user: result.user,
-      accessToken: cachedAccessToken,
-    };
+    lastAuthErrorCode = '';
+    const accessToken = await connectGoogleWorkspace();
+    const user = auth.currentUser;
+    if (!user) throw new Error('로그인 세션이 없습니다.');
+    return { user, accessToken };
   } catch (error: any) {
-    console.warn('Google Workspace Sign In error:', error);
+    lastAuthErrorCode = String(error?.code || error?.message || '');
+    console.warn('Google Workspace 연동 실패:', error);
     return null;
   } finally {
     isSigningIn = false;
   }
+};
+
+/** 마지막 실패 코드를 사람이 읽을 수 있는 안내 문구로 바꿉니다. */
+export const describeAuthError = (code: string): string => {
+  const value = String(code || '');
+  if (value.includes('unauthorized-domain')) {
+    return '이 사이트 주소가 Firebase 인증 허용 도메인에 없습니다. Firebase Console → Authentication → 승인된 도메인에 cmtp0531-wq.github.io 를 추가해야 합니다.';
+  }
+  if (value.includes('operation-not-allowed')) {
+    return 'Firebase Console에서 Google 로그인 제공업체가 꺼져 있습니다. Authentication → 로그인 방법에서 Google을 사용 설정해야 합니다.';
+  }
+  if (value.includes('popup')) {
+    return '로그인 창이 차단되었습니다. 브라우저에서 이 사이트의 팝업을 허용한 뒤 다시 시도해 주세요.';
+  }
+  if (value.includes('access_denied') || value.includes('user-disabled') || value.includes('cancelled')) {
+    return '로그인이 취소되었습니다. 다시 시도해 주세요.';
+  }
+  if (value.includes('network')) {
+    return '네트워크 문제로 로그인하지 못했습니다. 연결을 확인해 주세요.';
+  }
+  return 'Google 로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 };
 
 // --- BASE64 & RFC2822 / RFC2047 HELPERS FOR GMAIL (UTF-8 SAFE) ---
@@ -717,6 +808,35 @@ export const trashRealGmailMessage = async (messageId: string): Promise<boolean>
   }
 };
 
+/** Google Meet 실제 회의 공간 생성 (meetings.space.created 스코프 필요) */
+export const createGoogleMeetSpace = async (): Promise<{ meetingUri: string; meetingCode: string } | null> => {
+  const token = await getAccessToken();
+  if (!token) return null;
+  try {
+    const res = await fetch('https://meet.googleapis.com/v2/spaces', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      console.warn('[Meet] space creation failed:', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+    const data = await res.json();
+    if (!data?.meetingUri) return null;
+    return {
+      meetingUri: String(data.meetingUri),
+      meetingCode: String(data.meetingCode || data.meetingUri.split('/').pop() || ''),
+    };
+  } catch (error) {
+    console.warn('[Meet] space creation error:', error);
+    return null;
+  }
+};
+
 export const createGoogleCalendarWebLink = (event: {
   title: string;
   dateStr: string;
@@ -730,14 +850,57 @@ export const createGoogleCalendarWebLink = (event: {
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${start}/${end}&details=${encodeURIComponent(event.description || 'Google Chat Workspace 일정')}&location=${encodeURIComponent(event.location || 'Google Meet')}`;
 };
 
+/** 실제 Google Calendar 일정 생성 (calendar.events 스코프 필요) */
+export const createRealCalendarEvent = async (params: {
+  title: string;
+  dateStr: string;
+  startTime: string;
+  endTime: string;
+  location?: string;
+  description?: string;
+  attendeeEmails?: string[];
+}): Promise<{ htmlLink?: string; success: boolean; error?: string }> => {
+  const token = await getAccessToken();
+  if (!token) return { success: false, error: 'no-token' };
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul';
+    const body: any = {
+      summary: params.title,
+      location: params.location || undefined,
+      description: params.description || undefined,
+      start: { dateTime: `${params.dateStr}T${params.startTime}:00`, timeZone },
+      end: { dateTime: `${params.dateStr}T${params.endTime}:00`, timeZone },
+    };
+    const emails = (params.attendeeEmails || []).filter((email) => email && email.includes('@'));
+    if (emails.length > 0) {
+      body.attendees = emails.map((email) => ({ email }));
+    }
+    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      return { success: false, error: `HTTP ${res.status}` };
+    }
+    const data = await res.json();
+    return { success: true, htmlLink: data?.htmlLink };
+  } catch (error: any) {
+    return { success: false, error: String(error?.message || error) };
+  }
+};
+
 export const createGoogleTasksWebLink = (): string => {
   return 'https://tasks.google.com/embed/list/~default';
 };
 
 export const createGoogleMeetWebLink = (code?: string): string => {
-  if (code && code.startsWith('http')) return code;
-  const room = code || `${Math.random().toString(36).substring(2, 5)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`;
-  return `https://meet.google.com/${room}`;
+  if (!code) return '';
+  if (code.startsWith('http')) return code;
+  return `https://meet.google.com/${code}`;
 };
 
 // 1. Google Drive: Automatic Permission Granting to Space Members

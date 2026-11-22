@@ -13,7 +13,11 @@ import {
   ArrowLeft,
   ExternalLink
 } from 'lucide-react';
-import { searchYouTubeVideos, YouTubeVideoItem } from '../services/geminiService';
+import {
+  fetchYouTubeTrending,
+  searchYouTubeVideosDetailed,
+  YouTubeVideoItem,
+} from '../services/geminiService';
 
 interface YouTubeInPageViewProps {
   onShareToChat?: (videoUrl: string, title: string, videoId: string) => void;
@@ -37,8 +41,11 @@ export const YouTubeInPageView: React.FC<YouTubeInPageViewProps> = ({
   const [inputUrl, setInputUrl] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<YouTubeVideoItem[]>([]);
-  const [activeVideoId, setActiveVideoId] = useState<string>('jfKfPfyJRdk');
-  const [activeVideoTitle, setActiveVideoTitle] = useState('lofi hip hop radio - beats to relax/study to');
+  const [activeVideoId, setActiveVideoId] = useState<string>('');
+  const [activeVideoTitle, setActiveVideoTitle] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [searchSource, setSearchSource] = useState<'google' | 'piped' | 'invidious' | 'trending' | 'none'>('none');
+  const [isLoadingTrending, setIsLoadingTrending] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Universal Extract YouTube ID helper (supports shorts, live, standard, mobile, embed)
@@ -65,22 +72,45 @@ export const YouTubeInPageView: React.FC<YouTubeInPageViewProps> = ({
     if (!q) return;
 
     setIsSearching(true);
+    setSearchError('');
     try {
-      const results = await searchYouTubeVideos(q);
-      setSearchResults(results);
-      if (results.length > 0) {
-        setActiveVideoId(results[0].id);
-        setActiveVideoTitle(results[0].title);
+      const result = await searchYouTubeVideosDetailed(q);
+      setSearchResults(result.items);
+      setSearchSource(result.source);
+      if (result.items.length === 0) {
+        setSearchError(result.error || '검색 결과가 없습니다. 다른 검색어로 시도해 주세요.');
+      } else if (!activeVideoId) {
+        setActiveVideoId(result.items[0].id);
+        setActiveVideoTitle(result.items[0].title);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('YouTube search error:', e);
+      setSearchError('검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setIsSearching(false);
     }
   };
 
+  // 첫 화면: 실제 인기 영상 목록 (서버 없이 YouTube Data API 사용)
   useEffect(() => {
-    handleSearch('Google Workspace');
+    let cancelled = false;
+    (async () => {
+      setIsLoadingTrending(true);
+      const trend = await fetchYouTubeTrending(14);
+      if (cancelled) return;
+      if (trend.length > 0) {
+        setSearchResults(trend);
+        setSearchSource('trending');
+        setActiveVideoId(trend[0].id);
+        setActiveVideoTitle(trend[0].title);
+      } else {
+        setSearchError('인기 영상 목록을 불러오지 못했습니다. 검색어를 입력해 검색해 보세요.');
+      }
+      setIsLoadingTrending(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handlePlayDirectUrl = async (e: React.FormEvent) => {
@@ -277,7 +307,31 @@ export const YouTubeInPageView: React.FC<YouTubeInPageViewProps> = ({
 
           {/* Search Results List */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            <div className="text-[11px] font-bold text-[#7A6A5C] px-1">동영상 검색 결과:</div>
+            <div className="flex items-center justify-between px-1">
+              <div className="text-[11px] font-bold text-[#7A6A5C]">
+                {searchSource === 'trending' ? '지금 인기 있는 영상' : '동영상 검색 결과'}{' '}
+                {searchResults.length > 0 && <span className="text-[#A89A8E]">({searchResults.length})</span>}
+              </div>
+              {searchSource !== 'none' && searchSource !== 'trending' && (
+                <span className="text-[10px] text-[#A89A8E]">
+                  {searchSource === 'google' ? 'YouTube Data API' : searchSource === 'piped' ? 'Piped' : 'Invidious'}
+                </span>
+              )}
+            </div>
+            {(isSearching || isLoadingTrending) && (
+              <div className="py-10 text-center text-xs text-[#A89A8E] flex flex-col items-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                {isLoadingTrending ? '인기 영상을 불러오는 중…' : 'YouTube에서 검색하는 중…'}
+              </div>
+            )}
+            {!isSearching && !isLoadingTrending && searchError && (
+              <div className="p-3 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-[11px] text-[#8C6B3F] leading-relaxed">
+                {searchError}
+                <div className="mt-1.5 text-[10px] text-[#A89A8E]">
+                  위쪽 입력창에 유튜브 주소(예: https://youtu.be/영상ID)를 붙여넣으면 바로 재생·공유할 수 있습니다.
+                </div>
+              </div>
+            )}
             {searchResults.map((item) => {
               const isPlaying = activeVideoId === item.id;
               return (

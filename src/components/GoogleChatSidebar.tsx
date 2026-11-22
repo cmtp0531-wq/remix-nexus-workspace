@@ -21,6 +21,7 @@ import {
   Settings
 } from 'lucide-react';
 import { Space, User } from '../types';
+import { avatarSrc, handleAvatarError } from './UserAvatar';
 
 interface GoogleChatSidebarProps {
   currentUser: User;
@@ -41,6 +42,8 @@ interface GoogleChatSidebarProps {
   onOpenSettings?: () => void;
   onSwitchUser?: (user: User) => void;
   onToggleCollapse?: () => void;
+  onGoogleSignIn?: () => void;
+  authLoading?: boolean;
 }
 
 export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
@@ -62,6 +65,8 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
   onOpenSettings,
   onSwitchUser,
   onToggleCollapse,
+  onGoogleSignIn,
+  authLoading = false,
 }) => {
   const [spacesCollapsed, setSpacesCollapsed] = useState(false);
   const [dmsCollapsed, setDmsCollapsed] = useState(false);
@@ -352,7 +357,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
                         <div className="flex items-center gap-2 truncate">
                           <div className="relative flex-shrink-0">
                             <img
-                              src={friend?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                              src={avatarSrc(friend?.avatar, friend?.name)} onError={handleAvatarError}
                               alt={dm.name}
                               className="w-5 h-5 rounded-md object-cover bg-white border border-[#EBE5DA]"
                             />
@@ -422,7 +427,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
                   >
                     <div className="flex items-center gap-2 truncate">
                       <img
-                        src={u.avatar}
+                        src={avatarSrc(u.avatar)} onError={handleAvatarError}
                         alt={u.name}
                         className="w-6 h-6 rounded-lg object-cover border border-[#EBE5DA]"
                       />
@@ -455,6 +460,24 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
           </div>
         )}
 
+        {!currentUser.googleConnected && onGoogleSignIn && (
+          <button
+            type="button"
+            onClick={onGoogleSignIn}
+            disabled={authLoading}
+            className="w-full mb-2 px-3 py-2 rounded-xl bg-[#3E2723] hover:bg-[#2C2520] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+            title="Google 계정으로 로그인하면 대화와 파일이 계정에 저장됩니다"
+          >
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" aria-hidden="true">
+              <path fill="#fff" d="M21.6 12.23c0-.68-.06-1.36-.17-2.02H12v3.83h5.4a4.62 4.62 0 0 1-2 3.03v2.52h3.23c1.89-1.74 2.97-4.3 2.97-7.36Z" />
+              <path fill="#fff" opacity=".85" d="M12 22c2.7 0 4.96-.9 6.62-2.42l-3.23-2.52c-.9.6-2.05.96-3.39.96-2.6 0-4.8-1.76-5.59-4.12H3.07v2.6A10 10 0 0 0 12 22Z" />
+              <path fill="#fff" opacity=".7" d="M6.41 13.9a5.99 5.99 0 0 1 0-3.8V7.5H3.07a10 10 0 0 0 0 9l3.34-2.6Z" />
+              <path fill="#fff" opacity=".55" d="M12 5.98c1.47 0 2.79.51 3.83 1.5l2.86-2.86A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.93 5.5l3.34 2.6C7.2 7.74 9.4 5.98 12 5.98Z" />
+            </svg>
+            <span>{authLoading ? 'Google 로그인 중…' : 'Google로 로그인'}</span>
+          </button>
+        )}
+
         <div className="flex items-center justify-between gap-1.5">
           <div
             onClick={onOpenProfileModal}
@@ -463,7 +486,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
           >
             <div className="relative flex-shrink-0">
               <img
-                src={currentUser.avatar}
+                src={avatarSrc(currentUser.avatar)} onError={handleAvatarError}
                 alt={currentUser.name}
                 className="w-8 h-8 rounded-lg bg-white border border-[#DCD3C5] object-cover"
               />

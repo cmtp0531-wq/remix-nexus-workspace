@@ -43,6 +43,14 @@ import {
   Friendship 
 } from '../types';
 import { storage } from '../storage';
+import { avatarSrc, handleAvatarError } from './UserAvatar';
+import {
+  createGoogleMeetSpace,
+  describeAuthError,
+  getAccessToken,
+  getLastAuthErrorCode,
+  signInWithGoogleWorkspace,
+} from '../services/googleWorkspace';
 
 /* 1. GOOGLE MEET MODAL (REAL INTERACTIVE MEET ROOM) */
 interface GoogleMeetModalProps {
@@ -63,8 +71,12 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
   onShareToChat,
 }) => {
   const [meetingTitle, setMeetingTitle] = useState('스페이스 허들 회의');
-  const [meetCode] = useState(() => `${Math.random().toString(36).substring(2, 5)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`);
-  const meetLink = `https://meet.google.com/${meetCode}`;
+  // 실제 Google Meet 회의 공간 (권한 연결 후 Meet API 로 생성)
+  const [realMeet, setRealMeet] = useState<{ meetingUri: string; meetingCode: string } | null>(null);
+  const [meetStatus, setMeetStatus] = useState<'idle' | 'creating' | 'ready' | 'error'>('idle');
+  const [meetError, setMeetError] = useState('');
+  const meetLink = realMeet?.meetingUri || '';
+  const meetCode = realMeet?.meetingCode || '';
   const [copied, setCopied] = useState(false);
   const [inCall, setInCall] = useState(false);
   const [micOn, setMicOn] = useState(true);
@@ -128,6 +140,60 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
 
   if (!isOpen) return null;
 
+  useEffect(() => {
+    if (!isOpen) {
+      setRealMeet(null);
+      setMeetStatus('idle');
+      setMeetError('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) {
+        if (!cancelled) setMeetStatus('idle');
+        return;
+      }
+      if (!cancelled) setMeetStatus('creating');
+      const space = await createGoogleMeetSpace();
+      if (cancelled) return;
+      if (space) {
+        setRealMeet(space);
+        setMeetStatus('ready');
+      } else {
+        setMeetStatus('error');
+        setMeetError('Google Meet 회의를 만들지 못했습니다. Workspace 권한을 다시 연결해 주세요.');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  const handleCreateRealMeet = async () => {
+    setMeetStatus('creating');
+    setMeetError('');
+    try {
+      const connected = await signInWithGoogleWorkspace();
+      if (!connected) {
+        setMeetStatus('error');
+        setMeetError(describeAuthError(getLastAuthErrorCode()));
+        return;
+      }
+      const space = await createGoogleMeetSpace();
+      if (space) {
+        setRealMeet(space);
+        setMeetStatus('ready');
+      } else {
+        setMeetStatus('error');
+        setMeetError('Google Meet 회의 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    } catch (e: any) {
+      setMeetStatus('error');
+      setMeetError(describeAuthError(String(e?.code || e?.message || '')));
+    }
+  };
+
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60).toString().padStart(2, '0');
     const s = (sec % 60).toString().padStart(2, '0');
@@ -135,12 +201,14 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
   };
 
   const handleCopy = () => {
+    if (!meetLink) return;
     navigator.clipboard?.writeText(meetLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleShare = () => {
+    if (!meetLink) return;
     onShareToChat(meetingTitle, meetLink, meetCode);
     onClose();
   };
@@ -231,7 +299,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                 ) : (
                   <div className="text-center text-white p-3">
                     <img
-                      src={currentUser.avatar}
+                      src={avatarSrc(currentUser.avatar)} onError={handleAvatarError}
                       alt={currentUser.name}
                       className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl mx-auto border-2 border-[#C89B7B] object-cover shadow-md mb-2"
                     />
@@ -257,7 +325,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                   <div className="text-center text-white p-3">
                     <div className="relative inline-block mb-1.5">
                       <img
-                        src={member.avatar}
+                        src={avatarSrc(member.avatar)} onError={handleAvatarError}
                         alt={member.name}
                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl mx-auto border-2 border-[#48BB78] object-cover shadow-md animate-pulse"
                       />
@@ -335,7 +403,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                           id: `guest_${Date.now()}`,
                           name: customGuestName.trim(),
                           email: `${customGuestName.trim().toLowerCase()}@workchat.app`,
-                          avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&auto=format&fit=crop&q=80`,
+                          avatar: '',
                           status: 'online',
                           role: '회의 참가자',
                         };
@@ -353,7 +421,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                         id: `guest_${Date.now()}`,
                         name: customGuestName.trim(),
                         email: `${customGuestName.trim().toLowerCase()}@workchat.app`,
-                        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&auto=format&fit=crop&q=80`,
+                        avatar: '',
                         status: 'online',
                         role: '회의 참가자',
                       };
@@ -388,7 +456,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                           className="flex items-center justify-between p-2 rounded-xl bg-white border border-[#E0D8CB]"
                         >
                           <div className="flex items-center gap-2 truncate">
-                            <img src={user.avatar} alt={user.name} className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                            <img src={avatarSrc(user.avatar)} onError={handleAvatarError} alt={user.name} className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
                             <span className="text-xs font-bold text-[#342D26] truncate">{user.name}</span>
                           </div>
                           <button
@@ -522,7 +590,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                 {/* Host */}
                 <div className="flex items-center justify-between p-2 rounded-xl bg-white border border-[#E0D8CB]">
                   <div className="flex items-center gap-2">
-                    <img src={currentUser.avatar} alt={currentUser.name} className="w-7 h-7 rounded-lg object-cover" />
+                    <img src={avatarSrc(currentUser.avatar)} onError={handleAvatarError} alt={currentUser.name} className="w-7 h-7 rounded-lg object-cover" />
                     <div>
                       <div className="text-xs font-bold text-[#342D26]">{currentUser.name} (호스트)</div>
                       <div className="text-[10px] text-[#38A169]">주최자 • 발표 가능</div>
@@ -536,7 +604,7 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
                 {invitedMembers.map((member) => (
                   <div key={member.id} className="flex items-center justify-between p-2 rounded-xl bg-white border border-[#E0D8CB]">
                     <div className="flex items-center gap-2">
-                      <img src={member.avatar} alt={member.name} className="w-7 h-7 rounded-lg object-cover" />
+                      <img src={avatarSrc(member.avatar)} onError={handleAvatarError} alt={member.name} className="w-7 h-7 rounded-lg object-cover" />
                       <div>
                         <div className="text-xs font-bold text-[#342D26]">{member.name}</div>
                         <div className="text-[10px] text-[#38A169]">참여자 • 연결됨</div>
@@ -573,12 +641,12 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-[#4A3E34] block mb-1">회의 링크 (클라우드 생성)</label>
+              <label className="text-xs font-semibold text-[#4A3E34] block mb-1">회의 링크 (Google Meet)</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   readOnly
-                  value={meetLink}
+                  value={meetStatus === 'creating' ? '회의 링크를 만드는 중…' : meetLink || '아직 회의 링크가 없습니다'}
                   className="flex-1 bg-[#FAF7F2] border border-[#E0D8CB] rounded-xl px-3 py-2 text-xs text-[#2F855A] font-mono select-all"
                 />
                 <button
@@ -592,8 +660,25 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
               </div>
             </div>
 
+            {meetStatus !== 'ready' && (
+              <div className="p-3 bg-[#FFF9F2] border border-[#F3DEC2] rounded-2xl space-y-2">
+                <div className="text-[11px] text-[#8C6B3F] leading-relaxed">
+                  실제 Google Meet 회의 링크를 만들려면 Google Workspace 권한 연결이 필요합니다.
+                  {meetError && <span className="block mt-1 font-semibold text-[#B45309]">{meetError}</span>}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCreateRealMeet}
+                  disabled={meetStatus === 'creating'}
+                  className="px-3 py-1.5 rounded-xl bg-[#2F855A] hover:bg-[#276749] text-white text-[11px] font-bold cursor-pointer disabled:opacity-60"
+                >
+                  {meetStatus === 'creating' ? '회의 만드는 중…' : 'Google Meet 회의 만들기'}
+                </button>
+              </div>
+            )}
+
             <div className="p-3 bg-[#F5F9F6] border border-[#C6E2D0] rounded-2xl flex items-center gap-3">
-              <img src={currentUser.avatar} alt="host" className="w-10 h-10 rounded-xl object-cover bg-white border border-[#DDD4C7]" />
+              <img src={avatarSrc(currentUser.avatar)} onError={handleAvatarError} alt="host" className="w-10 h-10 rounded-xl object-cover bg-white border border-[#DDD4C7]" />
               <div className="text-xs">
                 <div className="font-bold text-[#22543D]">개설자: {currentUser.name}</div>
                 <div className="text-[11px] text-[#2F855A]">지금 바로 카메라/마이크 테스트 후 입장할 수 있습니다.</div>
@@ -602,10 +687,13 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
 
             <div className="pt-2 flex flex-wrap justify-end gap-2 border-t border-[#E6DFD5]">
               <a
-                href={meetLink}
+                href={meetLink || undefined}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F3EFE7] text-[#2F855A] text-xs font-semibold border border-[#C6E2D0] flex items-center gap-1.5 transition-colors"
+                aria-disabled={!meetLink}
+                className={`px-3.5 py-2 rounded-xl bg-white text-[#2F855A] text-xs font-semibold border border-[#C6E2D0] flex items-center gap-1.5 transition-colors ${
+                  meetLink ? 'hover:bg-[#F3EFE7]' : 'opacity-50 pointer-events-none'
+                }`}
                 title="실제 Google Meet 공식 웹사이트를 새 탭에서 열기"
               >
                 <Video className="w-3.5 h-3.5 text-[#2F855A]" />
@@ -1036,7 +1124,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!eventTitle.trim()) return;
 
     const chosenMembers = spaceMembers.filter((m) => selectedAttendeeIds.includes(m.id));
@@ -1045,7 +1133,12 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
       attendeeNames.unshift(currentUser.name);
     }
 
-    const meetLink = addMeet ? `https://meet.google.com/cal-${Math.random().toString(36).substring(2, 6)}-sync` : undefined;
+    // 실제 Google Meet 링크: 권한이 있으면 Meet API 로 회의를 만들고, 없으면 링크 없이 저장합니다(가짜 링크 금지).
+    let meetLink: string | undefined;
+    if (addMeet) {
+      const space = await createGoogleMeetSpace();
+      meetLink = space?.meetingUri;
+    }
 
     const rsvps: Record<string, 'accepted' | 'tentative' | 'declined'> = {
       [currentUser.id]: 'accepted',
@@ -1165,7 +1258,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
                     className="flex items-center justify-between p-1.5 rounded-xl hover:bg-white cursor-pointer transition-colors"
                   >
                     <div className="flex items-center gap-2 truncate">
-                      <img src={member.avatar} alt={member.name} className="w-6 h-6 rounded-lg object-cover" />
+                      <img src={avatarSrc(member.avatar)} onError={handleAvatarError} alt={member.name} className="w-6 h-6 rounded-lg object-cover" />
                       <span className="text-xs font-semibold text-[#342D26] truncate">
                         {member.name} {member.id === currentUser.id ? '(나)' : ''}
                       </span>
@@ -1364,7 +1457,8 @@ export const FriendManagementModal: React.FC<FriendManagementModalProps> = ({
                   >
                     <div className="flex items-center gap-3">
                       <img
-                        src={req.fromUserAvatar}
+                        src={avatarSrc(req.fromUserAvatar, req.fromUserName)}
+                        onError={handleAvatarError}
                         alt={req.fromUserName}
                         className="w-10 h-10 rounded-xl bg-[#F8F5EE] border border-[#DDD4C7] object-cover"
                       />
@@ -1426,7 +1520,7 @@ export const FriendManagementModal: React.FC<FriendManagementModalProps> = ({
                     >
                       <div className="flex items-center gap-2.5 truncate">
                         <img
-                          src={targetUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                          src={avatarSrc(targetUser?.avatar, targetUser?.name)} onError={handleAvatarError}
                           alt={req.toUserName}
                           className="w-9 h-9 rounded-xl bg-[#FAF7F2] border border-[#DDD4C7] object-cover flex-shrink-0"
                         />
@@ -1513,7 +1607,7 @@ export const FriendManagementModal: React.FC<FriendManagementModalProps> = ({
                       >
                         <div className="flex items-center gap-2.5 truncate">
                           <img
-                            src={user.avatar}
+                            src={avatarSrc(user.avatar)} onError={handleAvatarError}
                             alt={user.name}
                             className="w-8 h-8 rounded-lg bg-[#FAF7F2] border border-[#DDD4C7] object-cover"
                           />
@@ -1571,7 +1665,7 @@ export const FriendManagementModal: React.FC<FriendManagementModalProps> = ({
                   >
                     <div className="flex items-center gap-2.5 truncate">
                       <img
-                        src={friend.avatar}
+                        src={avatarSrc(friend.avatar)} onError={handleAvatarError}
                         alt={friend.name}
                         className="w-9 h-9 rounded-xl object-cover bg-white border border-[#DDD4C7]"
                       />
@@ -1757,7 +1851,7 @@ export const CreateSpaceModal: React.FC<CreateSpaceModalProps> = ({
               <div className="flex items-center justify-between p-2 rounded-xl bg-white border border-[#EAE2D7]">
                 <div className="flex items-center gap-2.5 truncate">
                   <img
-                    src={currentUser.avatar}
+                    src={avatarSrc(currentUser.avatar)} onError={handleAvatarError}
                     alt={currentUser.name}
                     className="w-7 h-7 rounded-lg object-cover border border-[#DDD4C7]"
                   />
@@ -1793,7 +1887,7 @@ export const CreateSpaceModal: React.FC<CreateSpaceModalProps> = ({
                     >
                       <div className="flex items-center gap-2.5 truncate">
                         <img
-                          src={user.avatar}
+                          src={avatarSrc(user.avatar)} onError={handleAvatarError}
                           alt={user.name}
                           className="w-7 h-7 rounded-lg object-cover border border-[#DDD4C7]"
                         />
@@ -2036,7 +2130,7 @@ export const SpaceSettingsModal: React.FC<SpaceSettingsModalProps> = ({
                       >
                         <div className="flex items-center gap-2.5 truncate">
                           <img
-                            src={member.avatar}
+                            src={avatarSrc(member.avatar)} onError={handleAvatarError}
                             alt={member.name}
                             className="w-8 h-8 rounded-xl object-cover border border-[#DDD4C7]"
                           />
@@ -2119,7 +2213,7 @@ export const SpaceSettingsModal: React.FC<SpaceSettingsModalProps> = ({
                         >
                           <div className="flex items-center gap-2.5 truncate">
                             <img
-                              src={user.avatar}
+                              src={avatarSrc(user.avatar)} onError={handleAvatarError}
                               alt={user.name}
                               className="w-8 h-8 rounded-xl object-cover border border-[#DDD4C7]"
                             />
@@ -2237,14 +2331,7 @@ interface UserProfileModalProps {
   onSwitchUser?: (user: User) => void;
 }
 
-const PROFILE_PHOTO_PRESETS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&auto=format&fit=crop&q=80',
-];
+const PROFILE_PHOTO_PRESETS: string[] = [];
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   isOpen,
@@ -2280,7 +2367,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <div className="flex items-center gap-2.5">
             <div className="relative">
               <img
-                src={avatar}
+                src={avatarSrc(avatar, currentUser.name)}
+                onError={handleAvatarError}
                 alt={currentUser.name}
                 className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#DDD4C7] object-cover shadow-xs"
               />
@@ -2448,7 +2536,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       }}
                       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white hover:bg-[#F3EFE7] border border-[#DDD4C7] text-xs font-semibold text-[#342D26] shadow-xs cursor-pointer transition-all"
                     >
-                      <img src={user.avatar} alt={user.name} className="w-5 h-5 rounded-md object-cover" />
+                      <img src={avatarSrc(user.avatar)} onError={handleAvatarError} alt={user.name} className="w-5 h-5 rounded-md object-cover" />
                       <span>{user.name}</span>
                     </button>
                   ))}

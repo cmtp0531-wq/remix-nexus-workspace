@@ -85,6 +85,7 @@ import {
 import { storage } from '../storage';
 import { LocationPickerModal } from './LocationPickerModal';
 import { YouTubeHubModal } from './YouTubeHubModal';
+import { avatarSrc, handleAvatarError } from './UserAvatar';
 
 interface GoogleChatMainProps {
   space: Space;
@@ -125,6 +126,8 @@ interface GoogleChatMainProps {
   onToggleNotifications?: () => void;
   onOpenDriveView?: () => void;
   onOpenYouTubeView?: () => void;
+  onCreateTask?: (title: string) => void;
+  onCreateReminder?: (text: string, minutes: number) => void;
 }
 
 const CAFE_EMOJIS = ['👍', '❤️', '☕', '🥐', '🌿', '🍰', '🥨', '💡', '🎉'];
@@ -139,12 +142,12 @@ const SLASH_COMMANDS = [
   { cmd: '/poll', desc: '실시간 즉석 투표 생성', placeholder: '/poll 점심 메뉴 뭐 먹을까요? [파스타, 샌드위치, 비빔밥]' },
   { cmd: '/meet', desc: 'Google Meet 화상 회의 즉시 생성', placeholder: '/meet 주간 팀 싱크' },
   { cmd: '/youtube', desc: 'YouTube 영상 공유 및 인앱 재생', placeholder: '/youtube https://youtu.be/...' },
-  { cmd: '/task', desc: 'Google Tasks 실시간 할 일 생성', placeholder: '/task 디자인 시안 검토하기' },
+  { cmd: '/task', desc: '할 일 목록에 추가 (Google Tasks 연동 시 함께 동기화)', placeholder: '/task 디자인 시안 검토하기' },
   { cmd: '/canvas', desc: '스페이스 실시간 공유 캔버스 열기', placeholder: '/canvas' },
   { cmd: '/location', desc: '실시간 내 GPS 위치 공유', placeholder: '/location' },
   { cmd: '/remind', desc: '리마인더 알림 예약', placeholder: '/remind 30분 뒤 회의 준비' },
   { cmd: '/delete', desc: '내가 보낸 최근 메시지 흔적 없이 삭제', placeholder: '/delete' },
-  { cmd: '/clear', desc: '대화창 깔끔하게 비우기', placeholder: '/clear' },
+  { cmd: '/clear', desc: '입력창 비우기', placeholder: '/clear' },
   { cmd: '/shrug', desc: '¯\\_(ツ)_/¯ 이모티콘 전송', placeholder: '/shrug' },
 ];
 
@@ -187,6 +190,8 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   onToggleNotifications,
   onOpenDriveView,
   onOpenYouTubeView,
+  onCreateTask,
+  onCreateReminder,
 }) => {
   const [text, setText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -264,6 +269,11 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   const [reminderToast, setReminderToast] = useState<{ messageId: string; content: string } | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [forwardSuccessToast, setForwardSuccessToast] = useState<string | null>(null);
+  const [slashHint, setSlashHint] = useState<string | null>(null);
+  const showSlashHint = (message: string) => {
+    setSlashHint(message);
+    window.setTimeout(() => setSlashHint(null), 3500);
+  };
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -352,6 +362,40 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       return;
     }
     if (clean === '/clear') {
+      setText('');
+      return;
+    }
+    if (clean.startsWith('/task')) {
+      const title = clean.replace('/task', '').trim();
+      if (!title) {
+        setText('/task ');
+        showSlashHint('할 일 제목을 입력하세요. 예: /task 보고서 초안 작성');
+        return;
+      }
+      onCreateTask?.(title);
+      onSendMessage(`✅ 할 일을 추가했습니다: **${title}**`);
+      setText('');
+      return;
+    }
+    if (clean.startsWith('/remind')) {
+      const rest = clean.replace('/remind', '').trim();
+      const match = rest.match(/^(\d+)\s*(분|시간|초)\s*(?:뒤|후)?\s*(.*)$/);
+      if (!rest || !match) {
+        setText('/remind ');
+        showSlashHint('형식: /remind 30분 뒤 회의 준비  (분/시간/초 지원)');
+        return;
+      }
+      const amount = Number(match[1]);
+      const unit = match[2];
+      const minutes = unit === '시간' ? amount * 60 : unit === '초' ? amount / 60 : amount;
+      const label = match[3]?.trim() || '리마인더';
+      if (!onCreateReminder) {
+        showSlashHint('이 환경에서는 리마인더를 예약할 수 없습니다.');
+        setText('');
+        return;
+      }
+      onCreateReminder(label, minutes);
+      onSendMessage(`⏰ ${amount}${unit} 뒤에 알려드릴게요: **${label}**`);
       setText('');
       return;
     }
@@ -1170,7 +1214,12 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#FDFBF7] text-[#2C2520] select-none">
+    <div className="flex-1 flex flex-col h-full bg-[#FDFBF7] text-[#2C2520] select-none relative">
+      {slashHint && (
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 px-3.5 py-2 rounded-xl bg-[#2C2520] text-white text-[11px] font-semibold shadow-xl animate-in fade-in max-w-[90%] text-center">
+          {slashHint}
+        </div>
+      )}
       
       {/* HEADER in Cafe Beige */}
       <header className="h-15 sm:h-16 px-3 sm:px-5 border-b border-[#EBE5DA] bg-[#FDFBF7] flex items-center justify-between z-10 cafe-shadow min-w-0">
@@ -1281,7 +1330,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
           {/* User pill & Direct Logout */}
           <div className="flex items-center gap-1 sm:gap-1.5 pl-1.5 border-l border-[#EBE5DA]">
             <img
-              src={currentUser.avatar}
+              src={avatarSrc(currentUser.avatar)} onError={handleAvatarError}
               alt={currentUser.name}
               className="w-7 h-7 rounded-lg object-cover border border-[#EBE5DA] hidden sm:block shrink-0"
             />
@@ -1388,9 +1437,9 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               ))}
             </div>
             <div className="flex items-center -space-x-1.5">
-              <img src={currentUser.avatar} alt="user" className="w-5 h-5 rounded-full border border-white object-cover ring-2 ring-emerald-500" />
+              <img src={avatarSrc(currentUser.avatar)} onError={handleAvatarError} alt="user" className="w-5 h-5 rounded-full border border-white object-cover ring-2 ring-emerald-500" />
               {spaceMembers.slice(0, 3).map((m) => (
-                <img key={m.id} src={m.avatar} alt={m.name} className="w-5 h-5 rounded-full border border-white object-cover" />
+                <img key={m.id} src={avatarSrc(m.avatar)} onError={handleAvatarError} alt={m.name} className="w-5 h-5 rounded-full border border-white object-cover" />
               ))}
             </div>
           </div>
@@ -1492,7 +1541,8 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 }`}
               >
                 <img
-                  src={msg.senderAvatar}
+                  src={avatarSrc(msg.senderAvatar, msg.senderName)}
+                  onError={handleAvatarError}
                   alt={msg.senderName}
                   className="w-9 h-9 rounded-xl object-cover bg-white border border-[#EBE5DA] shadow-xs flex-shrink-0 mt-0.5"
                 />
@@ -2011,7 +2061,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
           {isPeerTyping && typingPeerUser && (
             <div className="flex items-center gap-3 p-2 animate-in fade-in duration-200">
               <img
-                src={typingPeerUser.avatar}
+                src={avatarSrc(typingPeerUser.avatar)} onError={handleAvatarError}
                 alt={typingPeerUser.name}
                 className="w-8 h-8 rounded-xl object-cover bg-white border border-[#EBE5DA] shadow-xs"
               />
