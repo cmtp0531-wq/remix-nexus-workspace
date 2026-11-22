@@ -138,8 +138,6 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
     };
   }, [inCall, videoOn]);
 
-  if (!isOpen) return null;
-
   useEffect(() => {
     if (!isOpen) {
       setRealMeet(null);
@@ -169,6 +167,9 @@ export const GoogleMeetModal: React.FC<GoogleMeetModalProps> = ({
       cancelled = true;
     };
   }, [isOpen]);
+
+  if (!isOpen) return null;
+
 
   const handleCreateRealMeet = async () => {
     setMeetStatus('creating');
