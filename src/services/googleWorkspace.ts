@@ -273,6 +273,27 @@ export const initAuth = (
   });
 };
 
+/**
+ * 동의 화면에서 세부 권한 체크박스를 해제하면 Gmail/Drive 범위가 빠진 토큰이 발급됩니다.
+ * 실제 Gmail API 를 호출해 확인하고, 권한이 없으면 명확한 안내 코드로 실패시킵니다.
+ */
+async function assertWorkspaceScopes(token: string): Promise<void> {
+  try {
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 403 || res.status === 401) {
+      setAccessTokenInMemory(null);
+      const error: any = new Error('missing-scopes');
+      error.code = 'workspace/missing-scopes';
+      throw error;
+    }
+  } catch (error: any) {
+    if (error?.code === 'workspace/missing-scopes') throw error;
+    // 네트워크 오류는 권한 문제와 구분할 수 없으므로 통과시킵니다.
+  }
+}
+
 export const signInWithGoogleWorkspace = async (): Promise<{
   user: FirebaseUser;
   accessToken: string;
