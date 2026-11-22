@@ -134,3 +134,62 @@
   border: 1px solid rgba(235, 229, 218, 0.75);
 }
 
+
+/* ============================================================
+   Nexus Slides: 발표 전환 효과 & 인쇄/PDF 레이아웃
+   ============================================================ */
+.slide-anim-fade {
+  animation: nexusSlideFade 420ms ease both;
+}
+.slide-anim-push {
+  animation: nexusSlidePush 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes nexusSlideFade {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes nexusSlidePush {
+  from { opacity: 0.4; transform: translateX(6%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+#nexus-slide-print {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #nexus-slide-print,
+  #nexus-slide-print * {
+    visibility: visible !important;
+  }
+  #nexus-slide-print {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+    background: #fff;
+  }
+  .print-slide {
+    width: 1100px;
+    height: 619px;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+  .print-slide:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  .print-canvas {
+    width: 1280px;
+    height: 720px;
+    transform: scale(0.859);
+    transform-origin: top left;
+  }
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+}

@@ -64,6 +64,8 @@ import {
 import { User } from '../types';
 import { assistDocumentWithGemini } from '../services/geminiService';
 import { fetchRealDocContent, saveRealDocContent } from '../services/googleWorkspace';
+import { SheetEditor } from './SheetEditor';
+import { SlideEditor } from './SlideEditor';
 
 interface GoogleWorkspaceEditorProps {
   fileId: string;
@@ -119,7 +121,7 @@ const sampleImage = (label: string, hue: number): string => {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 };
 
-export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = ({
+const DocsEditor: React.FC<GoogleWorkspaceEditorProps> = ({
   fileId,
   fileName,
   fileType,
@@ -2973,4 +2975,18 @@ export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = ({
       )}
     </div>
   );
+};
+
+// ============================================================
+// DISPATCHER: 시트/슬라이드는 전용 고도화 에디터로 위임하고,
+// 문서(Docs)는 기존 동작을 그대로 유지한다.
+// ============================================================
+export const GoogleWorkspaceEditor: React.FC<GoogleWorkspaceEditorProps> = (props) => {
+  if (props.fileType === 'sheet') {
+    return <SheetEditor {...props} />;
+  }
+  if (props.fileType === 'slide') {
+    return <SlideEditor {...props} />;
+  }
+  return <DocsEditor {...props} />;
 };
