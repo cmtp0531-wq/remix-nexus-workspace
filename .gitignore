@@ -9,3 +9,6 @@ coverage/
 
 # legacy backup: contains the original app author's Firebase config (API key) - never publish
 docs/legacy/
+
+# local dev helpers
+check.mjs
