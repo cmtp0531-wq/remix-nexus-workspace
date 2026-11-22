@@ -35,7 +35,7 @@ import {
   ListPlus,
   Play,
 } from 'lucide-react';
-import { saveRealDocContent } from '../services/googleWorkspace';
+import { fetchRealDocContent, saveRealDocContent } from '../services/googleWorkspace';
 
 // ============================================================
 // TYPES
@@ -1121,6 +1121,22 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
   });
+
+  // 실제 Google Drive 스프레드시트를 열었을 때 내용 불러오기
+  useEffect(() => {
+    if (initialContent) return;
+    if (!fileId || /^(sheet_|doc_|upload_)/.test(fileId)) return;
+    let cancelled = false;
+    fetchRealDocContent(fileId, 'application/vnd.google-apps.spreadsheet').then((content) => {
+      if (cancelled || !content || !content.trim()) return;
+      const loaded = parseSheetContent(content);
+      setTabs(loaded.tabs);
+      if (loaded.activeTabId) setActiveTabId(loaded.activeTabId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId, initialContent]);
 
   // ============================================================
   // SAVE

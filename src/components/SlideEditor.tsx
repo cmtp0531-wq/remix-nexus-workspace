@@ -50,7 +50,7 @@ import {
   Sliders,
   GripVertical,
 } from 'lucide-react';
-import { saveRealDocContent } from '../services/googleWorkspace';
+import { fetchRealDocContent, saveRealDocContent } from '../services/googleWorkspace';
 
 // ============================================================
 // TYPES
@@ -1340,6 +1340,28 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   });
+
+  // 실제 Google Drive 프레젠테이션을 열었을 때 내용 불러오기
+  useEffect(() => {
+    if (initialContent) return;
+    if (!fileId || /^(slide_|doc_|upload_)/.test(fileId)) return;
+    let cancelled = false;
+    fetchRealDocContent(fileId, 'application/vnd.google-apps.presentation').then((content) => {
+      if (cancelled || !content || !content.trim()) return;
+      try {
+        const parsed = JSON.parse(content);
+        const list = Array.isArray(parsed) ? parsed : parsed?.slides;
+        if (Array.isArray(list) && list.length > 0) {
+          setSlides(parseSlides(content));
+        }
+      } catch {
+        /* Drive 슬라이드는 JSON 직렬화본만 복원 가능 */
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId, initialContent]);
 
   // ---------------- save ----------------
   const serialize = () => JSON.stringify({ v: 2, slides, activeIndex: currentIndex });
