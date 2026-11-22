@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // Spaces collection
+    match /spaces/{spaceId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(spaceId);
+      allow update: if isSignedIn() && isValidId(spaceId);
+      allow delete: if false;
+
+      // Subcollection: messages
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(messageId) && incoming().senderId == request.auth.uid;
+        allow update: if isSignedIn() && isValidId(messageId);
+        allow delete: if isSignedIn() && existing().senderId == request.auth.uid;
+      }
+    }
+
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(taskId);
+      allow update: if isSignedIn() && isValidId(taskId);
+      allow delete: if isSignedIn();
+    }
+  }
+}

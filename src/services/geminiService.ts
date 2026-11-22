@@ -1,0 +1,401 @@
+import { GoogleGenAI } from '@google/genai';
+import { Message, DriveDocument, CalendarEvent, TaskItem } from '../types';
+import { getGeminiApiKey } from './appConfig';
+
+export interface GeminiFileAttachment {
+  name: string;
+  mimeType: string;
+  base64Data: string;
+}
+
+// ==========================================
+// Gemini 호출 계층
+// 1) 설정에 저장된 사용자의 Gemini API 키가 있으면 → 브라우저에서 직접 호출 (정적 호스팅에서도 동작)
+// 2) 키가 없으면 → 같은 오리진의 서버 API(/api/gemini/*) 사용 (server.ts 로 실행할 때)
+// 3) 둘 다 없으면 → 무엇을 하면 되는지 알려주는 안내 문구 반환
+// ==========================================
+
+const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
+
+export const MISSING_KEY_MESSAGE =
+  'Gemini API 키가 아직 없습니다. 오른쪽 위 설정(⚙) → AI 탭에서 Google AI Studio에서 발급받은 API 키를 저장하면 바로 대화할 수 있습니다.';
+
+let cachedClient: GoogleGenAI | null = null;
+let cachedKey = '';
+
+const getClient = (): GoogleGenAI | null => {
+  const key = getGeminiApiKey();
+  if (!key) {
+    cachedClient = null;
+    cachedKey = '';
+    return null;
+  }
+  if (!cachedClient || cachedKey !== key) {
+    cachedClient = new GoogleGenAI({ apiKey: key });
+    cachedKey = key;
+  }
+  return cachedClient;
+};
+
+export const hasGeminiApiKey = (): boolean => Boolean(getGeminiApiKey());
+
+const isModelNotFound = (error: any): boolean => {
+  const msg = String(error?.message || error || '');
+  return /not found|NOT_FOUND|is not supported|unsupported model|does not exist|404/i.test(msg);
+};
+
+const isAuthError = (error: any): boolean => {
+  const msg = String(error?.message || error || '');
+  return /API key|API_KEY|PERMISSION_DENIED|UNAUTHENTICATED|invalid.*key|403|401/i.test(msg);
+};
+
+interface ClientGenerateParams {
+  prompt: string;
+  systemInstruction?: string;
+  attachments?: GeminiFileAttachment[];
+}
+
+/** 브라우저에서 사용자 키로 Gemini 를 직접 호출합니다. 키가 없으면 null */
+const generateWithClientKey = async ({ prompt, systemInstruction, attachments }: ClientGenerateParams): Promise<string | null> => {
+  const ai = getClient();
+  if (!ai) return null;
+
+  const parts: any[] = [{ text: prompt }];
+  (attachments || []).forEach((file) => {
+    if (!file?.base64Data) return;
+    parts.push({
+      inlineData: {
+        mimeType: file.mimeType || 'application/octet-stream',
+        data: file.base64Data.replace(/^data:[^;]+;base64,/, ''),
+      },
+    });
+    parts.push({ text: `(첨부 파일: ${file.name})` });
+  });
+
+  let lastError: any = null;
+  for (const model of MODEL_CANDIDATES) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts }],
+        config: systemInstruction ? { systemInstruction } : undefined,
+      });
+      const text = (response as any)?.text || '';
+      if (text) return text;
+      lastError = new Error('빈 응답을 받았습니다.');
+    } catch (error: any) {
+      lastError = error;
+      if (isModelNotFound(error)) continue;
+      break;
+    }
+  }
+
+  if (lastError) {
+    if (isAuthError(lastError)) {
+      return '[Gemini 오류] API 키가 올바르지 않거나 권한이 없습니다. 설정(⚙) → AI 탭에서 키를 다시 확인해 주세요.';
+    }
+    return `[Gemini 오류] ${lastError?.message || '답변을 불러오지 못했습니다. 다시 시도해 주세요.'}`;
+  }
+  return null;
+};
+
+/** 서버 프록시 호출 (server.ts 로 실행 중일 때만 동작)
+ *  정적 호스팅에서는 /api 가 없으므로, 한 번 확인되면 이후 요청은 건너뜁니다. */
+let serverApiAvailable: boolean | null = null;
+
+const postToServer = async (path: string, body: any): Promise<any | null> => {
+  if (serverApiAvailable === false) return null;
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 405 || res.status === 501) serverApiAvailable = false;
+      return null;
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      serverApiAvailable = false;
+      return null;
+    }
+    serverApiAvailable = true;
+    return await res.json();
+  } catch {
+    serverApiAvailable = false;
+    return null;
+  }
+};
+
+const SYSTEM_INSTRUCTION =
+  '당신은 워크챗(WorkChat) 워크스페이스의 Gemini AI 협업 비서입니다. 항상 자연스러운 한국어로, 간결하고 실행 가능한 답변을 제공합니다.';
+
+// 1. Gemini 채팅 (채팅방 맥락 + 첨부 파일)
+export const callGeminiServerChat = async (params: {
+  message?: string;
+  fullChatContext?: string;
+  attachments?: GeminiFileAttachment[];
+  model?: string;
+}): Promise<string> => {
+  const message = (params.message || '').trim();
+  const context = params.fullChatContext?.trim();
+
+  const prompt = [
+    context ? `[워크스페이스 실시간 맥락]\n${context}` : '',
+    message || '첨부한 내용을 정리해 주세요.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const clientAnswer = await generateWithClientKey({
+    prompt,
+    systemInstruction: SYSTEM_INSTRUCTION,
+    attachments: params.attachments,
+  });
+  if (clientAnswer) return clientAnswer;
+
+  const serverData = await postToServer('/api/gemini/chat', {
+    message: params.message,
+    fullChatContext: params.fullChatContext,
+    attachments: params.attachments,
+    model: params.model || 'gemini-2.5-flash',
+  });
+  if (serverData?.reply) return serverData.reply as string;
+
+  return MISSING_KEY_MESSAGE;
+};
+
+// 2. 대화 3줄 요약
+export const summarizeConversationWithGemini = async (messages: Message[]): Promise<string[]> => {
+  const recent = messages.slice(-25).filter((m) => !m.isSystemMessage);
+  if (recent.length === 0) {
+    return [
+      '아직 요약할 대화 내용이 없습니다.',
+      '대화방에 메시지를 작성해 보세요.',
+      '대화가 쌓이면 Gemini가 핵심을 3줄로 요약해 드립니다.',
+    ];
+  }
+
+  const chatContext = recent.map((m) => `[${m.senderName} (${m.timestamp})]: ${m.content}`).join('\n');
+
+  const answer = await callGeminiServerChat({
+    message:
+      '아래 대화의 핵심 사항을 차분하고 명확한 한국어로 딱 3줄로 요약해 주세요. 각 줄은 "• "로 시작하고 다른 설명은 붙이지 마세요.',
+    fullChatContext: chatContext,
+    model: 'gemini-2.5-flash',
+  });
+
+  const lines = answer
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('#') && !l.startsWith('['))
+    .slice(0, 3);
+
+  if (lines.length >= 1 && !answer.startsWith('[Gemini 오류]') && answer !== MISSING_KEY_MESSAGE) {
+    return lines;
+  }
+
+  return [
+    `• 총 ${recent.length}개의 최신 대화 기록이 이 기기에 저장되어 있습니다.`,
+    '• Gemini API 키를 설정 탭에서 저장하면 실제 AI 요약이 표시됩니다.',
+    '• 주요 안건과 파일 공유 내역은 새로고침해도 유지됩니다.',
+  ];
+};
+
+// 3. 문서/시트/슬라이드 AI 지원
+const DOC_ACTION_PROMPT: Record<string, string> = {
+  expand: '아래 문서 내용을 자연스럽게 확장해서 완성도 있는 문서로 다시 작성해 주세요. 원문의 언어(한국어)와 형식을 유지하세요.',
+  summarize: '아래 문서 내용을 핵심만 3~5개 항목으로 요약해 주세요.',
+  polish: '아래 문서의 맞춤법, 문장 흐름, 어조를 매끄럽게 다듬어 주세요. 내용은 바꾸지 마세요.',
+  outline: '아래 문서의 주제에 맞는 개요(목차)를 만들어 주세요.',
+  custom: '아래 문서에 대해 다음 요청을 반영해 주세요.',
+};
+
+export const assistDocumentWithGemini = async (params: {
+  action: 'expand' | 'summarize' | 'polish' | 'outline' | 'custom';
+  docTitle: string;
+  currentContent: string;
+  userInstruction?: string;
+}): Promise<string> => {
+  const instruction = DOC_ACTION_PROMPT[params.action] || DOC_ACTION_PROMPT.custom;
+  const prompt = [
+    `문서 제목: ${params.docTitle}`,
+    `요청: ${instruction}${params.action === 'custom' && params.userInstruction ? ` (${params.userInstruction})` : ''}`,
+    '결과는 문서에 바로 붙여넣을 수 있는 본문만 출력하고, 설명이나 인사말은 쓰지 마세요.',
+    '[문서 내용]',
+    params.currentContent || '(아직 내용이 없습니다. 제목에 맞는 새 문서를 작성해 주세요.)',
+  ].join('\n');
+
+  const answer = await generateWithClientKey({ prompt, systemInstruction: SYSTEM_INSTRUCTION });
+  if (answer) return answer;
+
+  const serverData = await postToServer('/api/gemini/docs-assist', params);
+  if (serverData?.result) return serverData.result as string;
+
+  return MISSING_KEY_MESSAGE;
+};
+
+// 4. YouTube 검색 (서버 API 가 없으면 추천 목록)
+export interface YouTubeVideoItem {
+  id: string;
+  title: string;
+  channel: string;
+  duration?: string;
+  category?: string;
+}
+
+export const searchYouTubeVideos = async (query: string): Promise<YouTubeVideoItem[]> => {
+  const serverData = await postToServer('/api/youtube/search', { query });
+  if (serverData && Array.isArray(serverData.results) && serverData.results.length > 0) {
+    return serverData.results;
+  }
+
+  return [
+    { id: 'jfKfPfyJRdk', title: 'lofi hip hop radio - beats to relax/study to', channel: 'Lofi Girl', duration: 'LIVE', category: '음악' },
+    { id: '5qap5aO4i9A', title: '비 오는 날 창가 카페 집중 BGM', channel: 'Cafe Music BGM', duration: '3:24:10', category: '카페/휴식' },
+    { id: 'k1BneeJTDcU', title: 'Google Workspace 200% 활용 팁', channel: 'Google Workspace', duration: '14:20', category: '생산성' },
+  ];
+};
+
+// 5. 스마트 컴포즈 추천
+export const getSmartComposeSuggestion = (inputText: string): string => {
+  const clean = inputText.trim();
+  if (!clean || clean.length < 2) return '';
+
+  const completions: Record<string, string> = {
+    안녕: '하세요. 오늘 요청주신 내용 확인했습니다.',
+    확인: '했습니다. 지금 바로 처리해서 공유해 드리겠습니다.',
+    회의: '일정을 구글 캘린더에 등록해 두었으니 확인 부탁드립니다.',
+    자료: '링크를 구글 드라이브에 공유해 드렸습니다. 함께 검토해 주세요.',
+    수고: '많으셨습니다. 좋은 하루 보내세요.',
+    감사: '합니다. 빠르게 피드백 반영하겠습니다.',
+    검토: '부탁드립니다. 수정 필요한 부분은 편하게 말씀해 주세요.',
+    파일: '업로드 완료했습니다. 실시간 화면 분할로 바로 확인 가능합니다.',
+    스케줄: '확인 후 캘린더에 미팅 초대장 전송해 드리겠습니다.',
+    오늘: '중으로 완료하여 보고드리겠습니다.',
+  };
+
+  for (const [key, val] of Object.entries(completions)) {
+    if (clean.endsWith(key) || key.startsWith(clean)) {
+      return val;
+    }
+  }
+
+  if (clean.endsWith('네 ')) return '알겠습니다. 바로 확인해 보겠습니다.';
+  if (clean.endsWith('지금 ')) return '처리 중이며 곧 공유드리겠습니다.';
+  if (clean.endsWith('링크 ')) return '클릭 시 분할 화면으로 바로 공동 작업 가능합니다.';
+
+  return '';
+};
+
+// 6. 스마트 답장 추천
+export const getSmartReplies = (lastMessageContent?: string): string[] => {
+  if (!lastMessageContent) {
+    return ['네, 확인했습니다.', '지금 검토 중입니다.', '좋은 제안입니다.'];
+  }
+
+  const content = lastMessageContent.toLowerCase();
+
+  if (content.includes('회의') || content.includes('미팅') || content.includes('meet') || content.includes('캘린더')) {
+    return ['미팅 참석 가능합니다.', 'Google Meet 링크로 입장하겠습니다.', '일정 등록 확인했습니다.'];
+  }
+  if (content.includes('자료') || content.includes('문서') || content.includes('파일') || content.includes('드라이브')) {
+    return ['문서 확인했습니다.', '분할 화면으로 함께 검토하겠습니다.', '피드백 바로 남겨두겠습니다.'];
+  }
+  if (content.includes('부탁') || content.includes('해주세요') || content.includes('요청')) {
+    return ['네, 바로 진행하겠습니다.', '확인 후 공유해 드리겠습니다.', '조금만 기다려 주세요.'];
+  }
+  if (content.includes('감사') || content.includes('수고')) {
+    return ['수고 많으셨습니다.', '감사합니다.', '좋은 시간 보내세요.'];
+  }
+
+  return ['네, 확인했습니다.', '지금 살펴보고 공유해 드리겠습니다.', '좋습니다, 그렇게 진행하시죠.'];
+};
+
+// 7. 워크스페이스 맥락을 반영한 Gemini 비서 응답
+export const queryGeminiAssistant = async (
+  query: string,
+  context: {
+    messages: Message[];
+    driveDocs: DriveDocument[];
+    events: CalendarEvent[];
+    tasks: TaskItem[];
+  }
+): Promise<string> => {
+  const fullContextText = `
+[최근 대화 (${context.messages.length}건)]:
+${context.messages.slice(-15).map((m) => `[${m.senderName} (${m.timestamp})]: ${m.content}`).join('\n')}
+
+[Google Drive 공유 문서 (${context.driveDocs.length}개)]:
+${context.driveDocs.map((d) => `• [${d.type.toUpperCase()}] ${d.title} (소유자: ${d.ownerName}, 최근 수정: ${d.updatedAt})`).join('\n')}
+
+[캘린더 일정 (${context.events.length}건)]:
+${context.events.map((e) => `• ${e.title} (${e.dateStr} ${e.startTime}~${e.endTime}, 위치: ${e.location || 'Google Meet'})`).join('\n')}
+
+[할 일 Tasks (${context.tasks.length}개)]:
+${context.tasks.map((t) => `• ${t.title} (담당자: ${t.assigneeName}, 상태: ${t.completed ? '완료' : '진행 중'})`).join('\n')}
+`;
+
+  return callGeminiServerChat({
+    message: query,
+    fullChatContext: fullContextText,
+    model: 'gemini-2.5-flash',
+  });
+};
+
+// 8. 이미지 생성 (Imagen / Gemini 이미지 모델)
+export const generateImageWithGemini = async (
+  prompt: string,
+  aspectRatio?: string
+): Promise<{ imageUrl: string; prompt: string } | null> => {
+  const ai = getClient();
+  if (ai) {
+    try {
+      const response: any = await (ai.models as any).generateImages({
+        model: 'imagen-3.0-generate-002',
+        prompt,
+        config: { numberOfImages: 1, aspectRatio: aspectRatio || '1:1' },
+      });
+      const generated = response?.generatedImages?.[0];
+      const bytes = generated?.image?.imageBytes;
+      if (bytes) {
+        return { imageUrl: `data:image/png;base64,${bytes}`, prompt };
+      }
+    } catch (error) {
+      console.warn('[GeminiService] Client image generation failed:', error);
+    }
+  }
+
+  const serverData = await postToServer('/api/gemini/generate-image', {
+    prompt,
+    aspectRatio: aspectRatio || '1:1',
+  });
+  if (serverData?.imageUrl) return serverData;
+
+  return null;
+};
+
+// 9. AI 로 문서/시트/슬라이드 초안 생성
+export const createArtifactWithGemini = async (
+  type: 'doc' | 'sheet' | 'slide',
+  prompt: string
+): Promise<{ type: string; content: string; prompt: string } | null> => {
+  const formatGuide =
+    type === 'sheet'
+      ? '쉼표(,)로 구분된 CSV 형식으로만 출력하세요. 첫 줄은 헤더입니다. 다른 설명은 쓰지 마세요.'
+      : type === 'slide'
+      ? 'JSON 배열 형식으로만 출력하세요. 각 항목은 {"title": "...", "subtitle": "...", "bullets": ["..."]} 형태입니다.'
+      : '문서 본문만 출력하세요. 마크다운 없이 읽기 쉬운 문단으로 작성하세요.';
+
+  const answer = await generateWithClientKey({
+    prompt: `다음 요청으로 ${type === 'sheet' ? '스프레드시트' : type === 'slide' ? '프레젠테이션' : '문서'} 초안을 만들어 주세요.\n요청: ${prompt}\n형식: ${formatGuide}`,
+    systemInstruction: SYSTEM_INSTRUCTION,
+  });
+  if (answer) return { type, content: answer.trim(), prompt };
+
+  const serverData = await postToServer('/api/gemini/create-artifact', { type, prompt });
+  if (serverData?.content) return serverData;
+
+  return null;
+};

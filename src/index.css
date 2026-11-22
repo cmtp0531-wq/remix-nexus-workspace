@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+/* 한글 타이포그래피 일관성: 유틸리티(font-sans)도 Noto Sans KR 을 우선 사용 */
+@theme {
+  --font-sans: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'D2Coding', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  body {
+    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    color: #2C2520;
+    background-color: #FDFBF7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    text-rendering: optimizeLegibility;
+    line-height: 1.625;
+    letter-spacing: -0.015em;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    text-wrap: balance;
+    letter-spacing: -0.02em;
+  }
+
+  p, span, div, button, input, textarea {
+    word-break: keep-all;
+  }
+}
+
+/* Soft Pastel Beige Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(193, 140, 93, 0.22);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(62, 39, 35, 0.35);
+}
+
+/* Cafe Beige Soft Ambient Shadows */
+.cafe-shadow {
+  box-shadow: 0 4px 20px -2px rgba(62, 39, 35, 0.04), 0 2px 6px -1px rgba(62, 39, 35, 0.02);
+}
+.cafe-shadow-lg {
+  box-shadow: 0 12px 32px -4px rgba(62, 39, 35, 0.08), 0 4px 12px -2px rgba(62, 39, 35, 0.03);
+}
+
+/* Subtle Micro-Interactions (정식 출시 감성 모션) */
+.cafe-card-hover {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cafe-card-hover:hover {
+  transform: translateY(-1.5px);
+  box-shadow: 0 8px 24px -3px rgba(62, 39, 35, 0.07);
+}
+
+/* Sinusoidal Wave Typing Indicator */
+@keyframes sinusoidal-wave {
+  0%, 100% {
+    transform: translateY(0px);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.typing-dot-1 {
+  animation: sinusoidal-wave 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+.typing-dot-2 {
+  animation: sinusoidal-wave 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite 0.18s;
+}
+.typing-dot-3 {
+  animation: sinusoidal-wave 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite 0.36s;
+}
+
+/* Voice Waveform Pulse */
+@keyframes voice-wave {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 18px;
+  }
+}
+.voice-bar-anim {
+  animation: voice-wave 0.75s ease-in-out infinite;
+}
+
+/* Ambient Pulse Glow */
+@keyframes ambient-glow {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+.ambient-glow-anim {
+  animation: ambient-glow 2.5s ease-in-out infinite;
+}
+
+/* Apple HIG spring transitions and micro-press feedback */
+.apple-press {
+  transition: transform 0.15s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.15s ease;
+}
+.apple-press:active {
+  transform: scale(0.97);
+}
+
+.apple-spring {
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.frosted-glass {
+  background: rgba(253, 251, 247, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(235, 229, 218, 0.75);
+}
+

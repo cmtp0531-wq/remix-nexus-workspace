@@ -1,0 +1,8 @@
+{
+  "name": "Remix Nexus Workspace",
+  "description": "A modern glassmorphism collaboration hub integrating Google Workspace tools with AI-powered communication and smart task management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

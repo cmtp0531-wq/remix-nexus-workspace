@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered user profile and status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["online", "away", "dnd", "offline"] },
+        "role": { "type": "string" },
+        "department": { "type": "string" },
+        "googleConnected": { "type": "boolean" },
+        "lastSeen": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "avatar", "status", "role"]
+    },
+    "Space": {
+      "title": "Space",
+      "description": "Chat channel or direct message room",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["space", "dm"] },
+        "creatorId": { "type": "string" },
+        "memberIds": { "type": "array" },
+        "topic": { "type": "string" },
+        "description": { "type": "string" },
+        "isStarred": { "type": "boolean" },
+        "dmWithUserId": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "creatorId", "memberIds"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message sent in a space or DM",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "spaceId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderAvatar": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "reactions": { "type": "array" },
+        "repliesCount": { "type": "number" },
+        "isStarred": { "type": "boolean" }
+      },
+      "required": ["id", "spaceId", "senderId", "senderName", "content", "timestamp"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Collaborative task in workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "spaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "assigneeName": { "type": "string" },
+        "assigneeAvatar": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] }
+      },
+      "required": ["id", "spaceId", "title", "assigneeId", "assigneeName", "completed", "priority"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection"
+    },
+    "/spaces/{spaceId}": {
+      "schema": "Space",
+      "description": "Chat spaces and direct message rooms"
+    },
+    "/spaces/{spaceId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages posted in a specific space"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Tasks created for spaces"
+    }
+  }
+}

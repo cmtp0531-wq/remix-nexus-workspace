@@ -1,0 +1,60 @@
+{
+  "users": [],
+  "spaces": [
+    {
+      "id": "space_general",
+      "name": "전체-라운지",
+      "type": "space",
+      "creatorId": "system",
+      "memberIds": [],
+      "topic": "전체 구성원이 자유롭게 소통하는 공용 스페이스입니다.",
+      "description": "모든 멤버가 참여할 수 있는 기본 채널",
+      "isStarred": true
+    }
+  ],
+  "messages": {
+    "space_general": [
+      {
+        "id": "msg_welcome",
+        "spaceId": "space_general",
+        "senderId": "system",
+        "senderName": "워크챗 시스템",
+        "senderAvatar": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80",
+        "senderRole": "시스템 안내",
+        "content": "전체 라운지 채널에 오신 것을 환영합니다! 다른 사용자와 실시간으로 대화하고 협업을 시작하세요.",
+        "timestamp": "오늘 09:00",
+        "reactions": [],
+        "repliesCount": 0,
+        "replies": []
+      }
+    ]
+  },
+  "tasks": [],
+  "friendRequests": [],
+  "friendships": [],
+  "driveDocs": [
+    {
+      "id": "doc_recent_1",
+      "title": "2026 Q1 팀 OKR 및 예산 계획서.gdoc",
+      "type": "doc",
+      "content": "# 2026년 1분기 팀 OKR 및 예산 계획서\n\n## 1. 목적\n본 문서는 Google Workspace 기반 실시간 협업 체계 구축 및 2026년 1분기 핵심 목표(OKR)를 정의합니다.\n\n## 2. 주요 OKR\n- O1: 전사 커뮤니케이션 지연 시간 50% 단축\n  - KR1: WorkChat 인앱 실시간 다자간 채팅 일상화\n  - KR2: 실시간 문서 공동 편집 기능 도입\n- O2: 업무 생산성 향상 및 자동화\n  - KR1: Gemini AI 비서 활용한 회의록 자동 요약\n  - KR2: 구글 드라이브 통합 파일 관리",
+      "ownerId": "system",
+      "ownerName": "김지민 팀장",
+      "updatedAt": "10분 전",
+      "size": "14.2 KB",
+      "permission": "editor"
+    },
+    {
+      "id": "doc_recent_2",
+      "title": "신제품 런칭 마케팅 스프레드시트.gsheet",
+      "type": "sheet",
+      "content": "채널,담당자,예산(원),진행상태,성과지표\nGoogle Ads,김민수,500000,진행중,CTR 3.5%\nYouTube 인플루언서,이서연,800000,완료,조회수 45k\n블로그 마케팅,박준호,300000,검토중,방문자 12k",
+      "ownerId": "system",
+      "ownerName": "박준호 마케터",
+      "updatedAt": "1시간 전",
+      "size": "28.5 KB",
+      "permission": "editor"
+    }
+  ],
+  "calendarEvents": []
+}
