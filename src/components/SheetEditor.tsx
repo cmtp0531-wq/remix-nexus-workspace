@@ -355,6 +355,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
   const formulaBarRef = useRef<HTMLInputElement>(null);
   const formulaCaretRef = useRef<number>(0);
   const formulaBarFocusedRef = useRef<boolean>(false);
+  const formulaBarDirtyRef = useRef<boolean>(false);
   const clipboardRef = useRef<{ data: string[][]; cut: boolean } | null>(null);
   const lastPushRef = useRef<{ key: string; at: number }>({ key: '', at: 0 });
 
@@ -709,7 +710,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
 
   // 수식 표시줄에 입력 중일 때 셀 클릭 → 해당 셀/범위 참조 삽입
   const startFormulaBarPick = (e: React.MouseEvent, r: number, c: number): boolean => {
-    if (edit || !formulaBarFocusedRef.current) return false;
+    if (edit || !formulaBarFocusedRef.current || !formulaBarDirtyRef.current) return false;
     const target = { r: sel.r1, c: sel.c1 };
     const baseText = rawAt(target.r, target.c);
     if (!isFormulaText(baseText)) return false;
@@ -1618,16 +1619,19 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
             value={edit ? edit.text : rawAt(sel.r1, sel.c1)}
             onFocus={() => {
               formulaBarFocusedRef.current = true;
+              formulaBarDirtyRef.current = false;
               formulaCaretRef.current = rawAt(sel.r1, sel.c1).length;
             }}
             onBlur={() => {
               formulaBarFocusedRef.current = false;
+              formulaBarDirtyRef.current = false;
             }}
             onSelect={(e) => {
               formulaCaretRef.current = (e.target as HTMLInputElement).selectionStart || 0;
             }}
             onChange={(e) => {
               const value = e.target.value;
+              formulaBarDirtyRef.current = true;
               formulaCaretRef.current = e.target.selectionStart || value.length;
               if (edit) {
                 setEdit({ ...edit, text: value, caret: formulaCaretRef.current });
@@ -1639,6 +1643,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
+                formulaBarDirtyRef.current = false;
                 if (edit) commitEdit('down');
                 else {
                   setSel({ r1: sel.r1 + 1, c1: sel.c1, r2: sel.r1 + 1, c2: sel.c1 });
@@ -1647,6 +1652,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
                 gridRef.current?.focus();
               }
               if (e.key === 'Escape') {
+                formulaBarDirtyRef.current = false;
                 setEdit(null);
                 gridRef.current?.focus();
               }
