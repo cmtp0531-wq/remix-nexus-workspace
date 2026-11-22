@@ -354,6 +354,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
   const editorInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLInputElement>(null);
   const formulaCaretRef = useRef<number>(0);
+  const formulaBarFocusedRef = useRef<boolean>(false);
   const clipboardRef = useRef<{ data: string[][]; cut: boolean } | null>(null);
   const lastPushRef = useRef<{ key: string; at: number }>({ key: '', at: 0 });
 
@@ -696,6 +697,51 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
       if (!hit) return;
       applyRef(refText(anchor.r, anchor.c, hit.r, hit.c));
       setSel({ r1: anchor.r, c1: anchor.c, r2: hit.r, c2: hit.c });
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    return true;
+  };
+
+  // 수식 표시줄에 입력 중일 때 셀 클릭 → 해당 셀/범위 참조 삽입
+  const startFormulaBarPick = (e: React.MouseEvent, r: number, c: number): boolean => {
+    if (edit || !formulaBarFocusedRef.current) return false;
+    const target = { r: sel.r1, c: sel.c1 };
+    const baseText = rawAt(target.r, target.c);
+    if (!isFormulaText(baseText)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+
+    pushHistory(`barpick_${target.r}_${target.c}`);
+    const insertAt = Math.min(formulaCaretRef.current, baseText.length);
+    let currentLen = 0;
+    const anchorCell = { r, c };
+
+    const applyRef = (ref: string) => {
+      const value = baseText.slice(0, insertAt) + ref + baseText.slice(insertAt + currentLen);
+      currentLen = ref.length;
+      const caret = insertAt + ref.length;
+      formulaCaretRef.current = caret;
+      setCellRaw(target.r, target.c, value);
+      window.setTimeout(() => {
+        const input = formulaBarRef.current;
+        if (input) {
+          input.focus();
+          input.setSelectionRange(caret, caret);
+        }
+      }, 0);
+    };
+
+    applyRef(refText(r, c, r, c));
+
+    const move = (ev: MouseEvent) => {
+      const hit = cellFromPoint(ev.clientX, ev.clientY);
+      if (!hit) return;
+      applyRef(refText(anchorCell.r, anchorCell.c, hit.r, hit.c));
     };
     const up = () => {
       document.removeEventListener('mousemove', move);
@@ -1571,7 +1617,11 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
             type="text"
             value={edit ? edit.text : rawAt(sel.r1, sel.c1)}
             onFocus={() => {
+              formulaBarFocusedRef.current = true;
               formulaCaretRef.current = rawAt(sel.r1, sel.c1).length;
+            }}
+            onBlur={() => {
+              formulaBarFocusedRef.current = false;
             }}
             onSelect={(e) => {
               formulaCaretRef.current = (e.target as HTMLInputElement).selectionStart || 0;
@@ -1685,6 +1735,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
                       data-ref={`${colLabel(c)}${r + 1}`}
                       onMouseDown={(e) => {
                         if (startReferencePick(e, r, c)) return;
+                        if (startFormulaBarPick(e, r, c)) return;
                         if (edit) commitEdit();
                         startRangeDrag(e, r, c);
                         gridRef.current?.focus();
