@@ -133,6 +133,53 @@ export default function App() {
   const [isGeminiPanelOpen, setIsGeminiPanelOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
+  // /remind 명령: 브라우저 알림 리마인더 예약 (새로고침해도 유지)
+  const [reminders, setReminders] = useState<Array<{ id: string; text: string; at: number }>>(() => {
+    try {
+      const raw = localStorage.getItem('workchat_reminders_v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const now = Date.now();
+    const timers = reminders
+      .filter((reminder) => reminder.at > now)
+      .map((reminder) =>
+        window.setTimeout(
+          () => {
+            notificationService.notify({ title: '⏰ 리마인더', body: reminder.text });
+            setReminders((prev) => {
+              const next = prev.filter((item) => item.id !== reminder.id);
+              try {
+                localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
+              } catch {
+                /* noop */
+              }
+              return next;
+            });
+          },
+          Math.min(reminder.at - now, 2 ** 31 - 1)
+        )
+      );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [reminders]);
+
+  const handleCreateReminder = (text: string, minutes: number) => {
+    const reminder = { id: `rem_${Date.now()}`, text, at: Date.now() + Math.max(1, minutes) * 60_000 };
+    const next = [...reminders, reminder];
+    setReminders(next);
+    try {
+      localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
+    } catch {
+      /* noop */
+    }
+  };
+
+
   // Device detection listener
   useEffect(() => {
     const checkDevice = () => {
@@ -1171,52 +1218,6 @@ export default function App() {
       priority: 'medium',
     };
     handleAddTask(task);
-  };
-
-  // /remind 명령: 브라우저 알림 리마인더 예약 (새로고침해도 유지)
-  const [reminders, setReminders] = useState<Array<{ id: string; text: string; at: number }>>(() => {
-    try {
-      const raw = localStorage.getItem('workchat_reminders_v1');
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    const now = Date.now();
-    const timers = reminders
-      .filter((reminder) => reminder.at > now)
-      .map((reminder) =>
-        window.setTimeout(
-          () => {
-            notificationService.notify({ title: '⏰ 리마인더', body: reminder.text });
-            setReminders((prev) => {
-              const next = prev.filter((item) => item.id !== reminder.id);
-              try {
-                localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
-              } catch {
-                /* noop */
-              }
-              return next;
-            });
-          },
-          Math.min(reminder.at - now, 2 ** 31 - 1)
-        )
-      );
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [reminders]);
-
-  const handleCreateReminder = (text: string, minutes: number) => {
-    const reminder = { id: `rem_${Date.now()}`, text, at: Date.now() + Math.max(1, minutes) * 60_000 };
-    const next = [...reminders, reminder];
-    setReminders(next);
-    try {
-      localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
-    } catch {
-      /* noop */
-    }
   };
 
   const handleToggleTask = (taskId: string) => {
