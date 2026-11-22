@@ -1610,7 +1610,7 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
           ref={gridRef}
           tabIndex={0}
           data-testid="sheet-grid"
-          className="flex-1 overflow-auto outline-none bg-white"
+          className="flex-1 overflow-auto outline-none bg-[#F4EFE6]"
           style={{ zoom: `${zoom}%` }}
           onMouseDown={() => setColorMenu(null)}
         >
@@ -1751,14 +1751,6 @@ export const SheetEditor: React.FC<SheetEditorProps> = ({
               </div>
             ))}
 
-            <div className="flex items-center gap-2 p-2">
-              <button onClick={addRow} className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-[#0F9D58] bg-[#F4EFE6] rounded-lg">
-                <Plus className="w-3 h-3" /> 행 추가
-              </button>
-              <button onClick={addCol} className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-[#0F9D58] bg-[#F4EFE6] rounded-lg">
-                <Plus className="w-3 h-3" /> 열 추가
-              </button>
-            </div>
           </div>
         </div>
       </div>
