@@ -144,6 +144,19 @@ export const connectGoogleWorkspace = async (): Promise<string> => {
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) throw new Error('Google 인증 토큰을 받지 못했습니다.');
     setAccessTokenInMemory(credential.accessToken);
+    await assertWorkspaceScopes(credential.accessToken);
+    return credential.accessToken;
+  }
+
+  // 이미 Google 로그인으로 가입된 계정은 linkWithPopup 이 항상 provider-already-linked 로 실패하므로
+  // 처음부터 재인증 팝업으로 추가 권한을 요청합니다.
+  const alreadyGoogle = current.providerData.some((info) => info.providerId === 'google.com');
+  if (alreadyGoogle) {
+    const result = await reauthenticateWithPopup(current, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) throw new Error('Google 인증 토큰을 받지 못했습니다.');
+    setAccessTokenInMemory(credential.accessToken);
+    await assertWorkspaceScopes(credential.accessToken);
     return credential.accessToken;
   }
 
@@ -152,6 +165,7 @@ export const connectGoogleWorkspace = async (): Promise<string> => {
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (credential?.accessToken) {
       setAccessTokenInMemory(credential.accessToken);
+      await assertWorkspaceScopes(credential.accessToken);
       return credential.accessToken;
     }
     throw new Error('Google 인증 토큰을 받지 못했습니다.');
@@ -163,6 +177,7 @@ export const connectGoogleWorkspace = async (): Promise<string> => {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setAccessTokenInMemory(credential.accessToken);
+        await assertWorkspaceScopes(credential.accessToken);
         return credential.accessToken;
       }
     }
@@ -292,6 +307,9 @@ export const describeAuthError = (code: string): string => {
   }
   if (value.includes('access_denied') || value.includes('user-disabled') || value.includes('cancelled')) {
     return '로그인이 취소되었습니다. 다시 시도해 주세요.';
+  }
+  if (value.includes('missing-scopes')) {
+    return 'Google 동의 화면에서 Gmail·Drive 같은 세부 권한을 체크하지 않아 연결되지 않았습니다. 다시 연결할 때 "모두 선택"을 누르고 계속해 주세요.';
   }
   if (value.includes('network')) {
     return '네트워크 문제로 로그인하지 못했습니다. 연결을 확인해 주세요.';
