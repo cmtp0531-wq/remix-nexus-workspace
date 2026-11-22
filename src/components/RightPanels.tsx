@@ -24,6 +24,7 @@ import { syncTaskToGoogle, updateGoogleTaskStatus, syncEventToGoogle } from '../
 import { GoogleWorkspaceEditor } from './GoogleWorkspaceEditor';
 import { storage } from '../storage';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
+import { RichText } from './RichText';
 
 /* 1. THREAD PANEL (인라인 스레드 답장) */
 interface ThreadPanelProps {
@@ -77,7 +78,9 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
               <span className="text-[10px] text-[#A89A8E] ml-2 font-mono">{message.timestamp}</span>
             </div>
           </div>
-          <p className="mt-2 text-xs text-[#2C2520] leading-relaxed">{message.content}</p>
+          <p className="mt-2 text-xs text-[#2C2520] leading-relaxed">
+            <RichText text={message.content} />
+          </p>
         </div>
 
         <div className="text-[11px] font-bold text-[#C18C5D] text-center">답글 목록</div>
