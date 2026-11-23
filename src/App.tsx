@@ -755,6 +755,7 @@ function WorkspaceApp() {
   /** 새 회의 시작: 매번 고유한 새 회의를 만들고, 링크를 채팅방에 자동으로 올립니다. */
   const handleStartMeeting = async (title?: string) => {
     if (meetingBusy) return;
+    setIsMobileSidebarOpen(false);
     setMeetingBusy(true);
     try {
       const room = await createNewMeetingRoom(title || `${activeSpace.name} 회의`, activeSpace.id);
@@ -1925,16 +1926,28 @@ function WorkspaceApp() {
             setIsMobileSidebarOpen(false);
           }}
           pendingRequestsCount={pendingRequestsCount}
-          onOpenFriendModal={() => setIsFriendModalOpen(true)}
-          onOpenCreateSpaceModal={() => setIsCreateSpaceModalOpen(true)}
+          onOpenFriendModal={() => {
+            setIsFriendModalOpen(true);
+            setIsMobileSidebarOpen(false);
+          }}
+          onOpenCreateSpaceModal={() => {
+            setIsCreateSpaceModalOpen(true);
+            setIsMobileSidebarOpen(false);
+          }}
           onOpenProfileModal={() => setIsProfileModalOpen(true)}
-          onOpenSearchModal={() => setIsSearchModalOpen(true)}
+          onOpenSearchModal={() => {
+            setIsSearchModalOpen(true);
+            setIsMobileSidebarOpen(false);
+          }}
           onSelectSelfNotes={() => {
             handleSelectSelfNotes();
             setIsMobileSidebarOpen(false);
           }}
           allUsers={allUsers}
-          onOpenWorkspaceHub={() => setIsWorkspaceHubOpen(true)}
+          onOpenWorkspaceHub={() => {
+            setIsWorkspaceHubOpen(true);
+            setIsMobileSidebarOpen(false);
+          }}
           onOpenGmail={handleOpenGmail}
           onOpenDrive={handleOpenDriveSplit}
           onLogout={handleLogout}
@@ -1944,7 +1957,10 @@ function WorkspaceApp() {
           authLoading={authLoading}
           onToggleCollapse={() => setIsSidebarCollapsed(true)}
           contacts={contacts}
-          onOpenContacts={() => setIsContactsOpen(true)}
+          onOpenContacts={() => {
+            setIsContactsOpen(true);
+            setIsMobileSidebarOpen(false);
+          }}
         />
       </div>
 
