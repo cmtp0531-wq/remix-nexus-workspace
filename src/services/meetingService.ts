@@ -41,7 +41,7 @@ export const createInstantMeetingRoom = (title: string, spaceId?: string): Meeti
   const room = `nexus-${sanitize(spaceId || 'room')}-${Date.now().toString(36)}-${randomToken(4)}`;
   const embedUrl =
     `https://${JITSI_DOMAIN}/${room}` +
-    '#config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=false' +
+    '#config.prejoinPageEnabled=false&config.prejoinConfig.enabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=false' +
     '&config.disableDeepLinking=true&config.enableWelcomePage=false&config.requireDisplayName=false';
   return {
     link: `https://${JITSI_DOMAIN}/${room}`,
@@ -97,7 +97,7 @@ export const joinMeetingRoom = (link: string, title?: string, code?: string): Me
   const roomCode = code || meetingCodeFromLink(link);
   const embedUrl =
     provider === 'instant'
-      ? `${link.split('#')[0]}#config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=false&config.disableDeepLinking=true&config.enableWelcomePage=false`
+      ? `${link.split('#')[0]}#config.prejoinPageEnabled=false&config.prejoinConfig.enabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=false&config.disableDeepLinking=true&config.enableWelcomePage=false`
       : undefined;
   return {
     link,

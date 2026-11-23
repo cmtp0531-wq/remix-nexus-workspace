@@ -70,7 +70,7 @@ export const MeetRoomModal: React.FC<MeetRoomModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[80] bg-[#0E0B09]/95 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
-      <div className="w-full h-[100dvh] sm:h-auto sm:max-h-[92dvh] sm:max-w-5xl bg-[#1A1512] sm:rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl">
+      <div className="w-full h-[100dvh] sm:h-[88dvh] sm:max-h-[92dvh] sm:max-w-5xl bg-[#1A1512] sm:rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl">
         {/* header */}
         <div className="px-3 sm:px-4 py-2.5 flex items-center gap-2 border-b border-white/10 shrink-0">
           <div className="p-1.5 rounded-xl bg-[#22C55E]/20 text-[#4ADE80]">
@@ -97,7 +97,7 @@ export const MeetRoomModal: React.FC<MeetRoomModalProps> = ({
         </div>
 
         {/* stage */}
-        <div className="flex-1 min-h-0 bg-black relative">
+        <div className="flex-1 min-h-[300px] bg-black relative">
           {room?.provider === 'instant' && room.embedUrl ? (
             <iframe
               title="nexus-meeting"
