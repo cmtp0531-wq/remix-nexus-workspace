@@ -1845,7 +1845,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
               }}
               className="text-xs sm:text-sm font-bold text-[#2C2520] bg-transparent hover:bg-[#F4EFE6] px-1.5 py-0.5 rounded-lg border border-transparent hover:border-[#EBE5DA] focus:border-[#F4B400] focus:bg-white focus:outline-none truncate max-w-[150px] sm:max-w-xs"
             />
-            <div className="flex items-center gap-2 text-[10px] text-[#7A6A5C] px-1.5">
+            <div className="hidden sm:flex items-center gap-2 text-[10px] text-[#7A6A5C] px-1.5">
               <span className="font-semibold hidden sm:inline">Canva 스타일 스튜디오</span>
               <span className="hidden sm:inline">•</span>
               <span

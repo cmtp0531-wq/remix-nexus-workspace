@@ -2262,7 +2262,7 @@ function WorkspaceApp() {
           {/* Chat Ambient Notification Strip on the Side */}
           <aside
             onClick={() => setFocusMode('chat')}
-            className="w-16 md:w-20 hover:w-72 transition-all duration-300 bg-[#F4EFE6] border-l border-[#EBE5DA] flex flex-col justify-between p-2.5 md:p-3 select-none cursor-pointer z-30 group shadow-sm shrink-0 overflow-hidden relative"
+            className="hidden sm:flex w-16 md:w-20 hover:w-72 transition-all duration-300 bg-[#F4EFE6] border-l border-[#EBE5DA] flex-col justify-between p-2.5 md:p-3 select-none cursor-pointer z-30 group shadow-sm shrink-0 overflow-hidden relative"
             title="터치하여 대화창 전체화면으로 전환"
           >
             <div className="flex flex-col items-center group-hover:items-start transition-all w-full">
