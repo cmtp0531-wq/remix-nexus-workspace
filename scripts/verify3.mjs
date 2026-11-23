@@ -36,6 +36,10 @@ async function shot(viewport, tag) {
   const shapes = await page.locator('button[data-testid^="element-"]').count();
   await page.locator('[data-testid="element-pentagon"]').click();
   await page.waitForTimeout(500);
+  if (viewport.width < 768) {
+    await page.locator('[data-testid="close-panel"]').click().catch(() => {});
+    await page.waitForTimeout(400);
+  }
   await page.screenshot({ path: `${outDir}/${tag}-slide-shapes.png` });
   const editorErrors = errors.slice(0, 3);
 

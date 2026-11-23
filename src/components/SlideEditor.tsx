@@ -2039,7 +2039,13 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
         {/* PANEL */}
         {panelOpen && (
-          <div className="w-72 bg-white border-r border-[#EBE5DA] overflow-y-auto shrink-0 hidden sm:block">
+          <div className="w-72 max-w-[78vw] bg-white border-r border-[#EBE5DA] overflow-y-auto shrink-0 fixed inset-y-0 left-14 z-40 shadow-2xl sm:static sm:z-auto sm:max-w-none sm:shadow-none">
+            <div className="sm:hidden flex items-center justify-between px-3 py-2 border-b border-[#EBE5DA] sticky top-0 bg-white z-10">
+              <span className="text-[11px] font-bold text-[#3E2723]">패널</span>
+              <button onClick={() => setPanelOpen(false)} className="px-2 py-1 rounded-lg bg-[#F4EFE6] text-[10px] font-bold text-[#5C5046]" data-testid="close-panel">
+                닫기 ✕
+              </button>
+            </div>
             {panelTab === 'design' && (
               <div className="p-3">
                 <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#7A6A5C] mb-2">템플릿</h3>
