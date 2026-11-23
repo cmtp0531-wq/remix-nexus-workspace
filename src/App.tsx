@@ -1503,6 +1503,7 @@ function WorkspaceApp() {
       }
     }
     setActiveDocEditor({ fileId: actualId, fileName, fileType, initialContent: contentToLoad });
+    setIsMobileSidebarOpen(false);
     setActiveThreadMessage(null);
     setIsTasksPanelOpen(false);
     setIsGeminiPanelOpen(false);
@@ -1515,6 +1516,7 @@ function WorkspaceApp() {
   // Open In-App Gmail and switch to work focus
   const handleOpenGmail = () => {
     setActiveTab('gmail');
+    setIsMobileSidebarOpen(false);
     setActiveDocEditor(null);
     setActiveThreadMessage(null);
     setIsTasksPanelOpen(false);
@@ -1543,6 +1545,7 @@ function WorkspaceApp() {
   // Open Google Drive split view and switch to work focus
   const handleOpenDriveSplit = () => {
     setActiveTab('drive');
+    setIsMobileSidebarOpen(false);
     setActiveDocEditor(null);
     setActiveThreadMessage(null);
     setIsTasksPanelOpen(false);
@@ -1555,6 +1558,7 @@ function WorkspaceApp() {
   // Open YouTube in-page media center split view
   const handleOpenYouTubeSplit = () => {
     setActiveTab('youtube');
+    setIsMobileSidebarOpen(false);
     setActiveDocEditor(null);
     setActiveThreadMessage(null);
     setIsTasksPanelOpen(false);
