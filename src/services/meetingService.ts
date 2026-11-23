@@ -20,7 +20,9 @@ export interface MeetingRoom {
   isNew: boolean;
 }
 
-const JITSI_DOMAIN = 'meet.jit.si';
+// 로그인 없이 바로 쓸 수 있는 공개 Jitsi 인스턴스 (meet.jit.si 는 새 회의 개설에 로그인을 요구합니다)
+const JITSI_DOMAIN = 'framatalk.org';
+export const MEETING_FALLBACK_HOSTS = ['framatalk.org', 'meet.jit.si'];
 
 const randomToken = (len = 6) => {
   const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
