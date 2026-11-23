@@ -1,13 +1,12 @@
 import { User, Space, Message, TaskItem, FriendRequest, Friendship, DriveDocument, CalendarEvent } from './types';
 
-// Default initial space so every newly registered user has a common room to chat
+// 기본 공용 라운지: 예시 메시지·가짜 멤버 없이 '빈 상태'로 시작합니다.
 export const DEFAULT_PUBLIC_SPACE: Space = {
   id: 'space_general',
-  name: '전체-라운지',
+  name: '전체 라운지',
   type: 'space',
   creatorId: 'system',
   memberIds: ['user_local_owner'],
-  topic: '전체 구성원이 자유롭게 소통하는 공용 스페이스입니다.',
   description: '모든 멤버가 참여할 수 있는 기본 채널',
   isStarred: true
 };
@@ -25,21 +24,8 @@ export const DEFAULT_LOCAL_USER: User = {
 
 const DEFAULT_SEED_USERS: User[] = [DEFAULT_LOCAL_USER];
 
-const INITIAL_MESSAGES: Record<string, Message[]> = {
-  space_general: [
-    {
-      id: 'msg_welcome',
-      spaceId: 'space_general',
-      senderId: 'system',
-      senderName: '워크챗 시스템',
-      senderAvatar: '',
-      senderRole: '시스템 안내',
-      content: '전체 라운지 채널에 오신 것을 환영합니다. Google Workspace(Docs, Sheets, Drive, Maps, YouTube, Gemini AI)의 모든 기능을 바로 이용할 수 있습니다.',
-      timestamp: '방금 전',
-      reactions: [],
-    },
-  ],
-};
+// 예시/샘플 메시지는 두지 않습니다. 채팅은 항상 빈 상태에서 시작합니다.
+const INITIAL_MESSAGES: Record<string, Message[]> = {};
 const USERS_KEY = 'workchat_users_v6';
 const CURRENT_USER_KEY = 'workchat_current_user_v6';
 const SPACES_KEY = 'workchat_spaces_v6';
@@ -129,10 +115,15 @@ export const storage = {
         return INITIAL_MESSAGES;
       }
       const parsed = JSON.parse(data);
-      if (!parsed.space_general || parsed.space_general.length === 0) {
-        parsed.space_general = INITIAL_MESSAGES.space_general;
-      }
-      return parsed;
+      // 과거 버전에서 자동으로 들어가 있던 예시/환영 메시지를 제거합니다.
+      const cleaned: Record<string, Message[]> = {};
+      Object.entries(parsed || {}).forEach(([spaceId, list]) => {
+        if (!Array.isArray(list)) return;
+        cleaned[spaceId] = (list as Message[]).filter(
+          (msg) => msg && msg.id !== 'msg_welcome'
+        );
+      });
+      return cleaned;
     } catch {
       return INITIAL_MESSAGES;
     }

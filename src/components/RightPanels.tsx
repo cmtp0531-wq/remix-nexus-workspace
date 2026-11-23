@@ -49,7 +49,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   };
 
   return (
-    <aside className="w-80 sm:w-96 flex-shrink-0 bg-[#FDFBF7] border-l border-[#EBE5DA] flex flex-col justify-between z-20 cafe-shadow">
+    <aside className="fixed inset-y-0 right-0 z-40 w-full sm:static sm:w-80 sm:z-20 md:w-96 flex-shrink-0 bg-[#FDFBF7] border-l border-[#EBE5DA] flex flex-col justify-between cafe-shadow">
       <div className="h-16 px-4 border-b border-[#EBE5DA] flex items-center justify-between bg-[#FDFBF7]">
         <div className="flex items-center gap-2">
           <CornerDownRight className="w-4 h-4 text-[#C18C5D]" />

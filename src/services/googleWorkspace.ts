@@ -10,6 +10,8 @@ import {
   GoogleAuthProvider, 
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
   User as FirebaseUser 
 } from 'firebase/auth';
 import { getStoredFirebaseConfig } from './appConfig';
@@ -24,6 +26,23 @@ export const firebaseApp = getApps().length === 0
 
 export const auth = getAuth(firebaseApp);
 export const firestore = getFirestore(firebaseApp, activeFirebaseConfig.firestoreDatabaseId || '(default)');
+
+// ==========================================
+// 재방문/새로고침 시 즉시 로그인 상태 복원
+// - localStorage 기반 영속성(browserLocalPersistence)을 명시적으로 사용해
+//   Firebase 세션을 네트워크 없이 즉시 되살립니다.
+// ==========================================
+let persistenceReady: Promise<void> | null = null;
+export const ensureLocalPersistence = (): Promise<void> => {
+  if (!auth) return Promise.resolve();
+  if (!persistenceReady) {
+    persistenceReady = setPersistence(auth, browserLocalPersistence).catch((error) => {
+      console.warn('[Auth] local persistence unavailable:', error);
+    });
+  }
+  return persistenceReady;
+};
+void ensureLocalPersistence();
 
 /** 마지막 로그인/연동 실패 사유 (UI 토스트에서 사용) */
 let lastAuthErrorCode = '';
@@ -104,6 +123,7 @@ export const isWorkspaceConnected = (): boolean => Boolean(cachedAccessToken);
 export const signInWithGoogleAccount = async (): Promise<FirebaseUser> => {
   try {
     lastAuthErrorCode = '';
+    await ensureLocalPersistence();
     const result = await signInWithPopup(auth, workspaceProvider);
     // 기본 로그인 토큰에는 Gmail/Drive 범위가 없으므로 워크스페이스 토큰으로 저장하지 않습니다.
     return result.user;
@@ -244,6 +264,56 @@ export const subscribeToCloudUsers = (callback: (users: any[]) => void, onError?
     console.warn('[Firestore] Users sync failed:', error);
     onError?.(error);
   });
+};
+
+// ==========================================
+// 연락처(주소록) — 사용자별 Firestore 저장
+// users/{uid}/contacts/{contactId} 에는 그 사용자만 보는 별명/메모가 저장됩니다.
+// ==========================================
+export const saveContactToFirestore = async (ownerId: string, contact: Record<string, unknown>) => {
+  if (!auth?.currentUser || !firestore) return false;
+  if (auth.currentUser.uid !== ownerId) return false;
+  try {
+    const safe = JSON.parse(JSON.stringify(contact));
+    await setDoc(doc(firestore, 'users', ownerId, 'contacts', String(contact.id)), safe, { merge: true });
+    return true;
+  } catch (error) {
+    console.warn('[Firestore] Contact save failed:', error);
+    return false;
+  }
+};
+
+export const deleteContactFromFirestore = async (ownerId: string, contactId: string) => {
+  if (!auth?.currentUser || !firestore) return false;
+  if (auth.currentUser.uid !== ownerId) return false;
+  try {
+    const { deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(doc(firestore, 'users', ownerId, 'contacts', contactId));
+    return true;
+  } catch (error) {
+    console.warn('[Firestore] Contact delete failed:', error);
+    return false;
+  }
+};
+
+export const subscribeToCloudContacts = (
+  ownerId: string,
+  callback: (contacts: any[]) => void,
+  onError?: (error: Error) => void
+) => {
+  if (!firestore || !auth?.currentUser || auth.currentUser.uid !== ownerId) return () => {};
+  try {
+    const contactsQuery = collection(firestore, 'users', ownerId, 'contacts');
+    return onSnapshot(contactsQuery, (snapshot) => {
+      callback(snapshot.docs.map((item) => item.data()));
+    }, (error) => {
+      console.warn('[Firestore] Contacts sync failed:', error);
+      onError?.(error);
+    });
+  } catch (error) {
+    console.warn('[Firestore] Contacts subscribe failed:', error);
+    return () => {};
+  }
 };
 
 // Validate connection on boot (Firebase 가 설정된 경우에만)

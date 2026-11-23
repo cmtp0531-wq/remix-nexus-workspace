@@ -12,3 +12,6 @@ docs/legacy/
 
 # local dev helpers
 check.mjs
+
+# local verification script (dev only)
+scripts/verify.mjs

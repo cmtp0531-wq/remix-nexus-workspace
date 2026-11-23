@@ -180,7 +180,7 @@ export const GeminiAIPanel: React.FC<GeminiAIPanelProps> = ({
   };
 
   return (
-    <aside className="w-80 sm:w-96 h-full flex flex-col bg-[#FDFBF7] border-l border-[#EBE5DA] z-30 cafe-shadow-lg select-none animate-in slide-in-from-right duration-200">
+    <aside className="fixed inset-y-0 right-0 z-40 w-full sm:static sm:w-80 md:w-96 h-full flex flex-col bg-[#FDFBF7] border-l border-[#EBE5DA] cafe-shadow-lg select-none animate-in slide-in-from-right duration-200">
       {/* Top Header */}
       <div className="p-3.5 border-b border-[#EBE5DA] bg-[#F4EFE6] flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -281,39 +281,13 @@ const parseSheetContent = (
     }
   }
 
-  // 새 스프레드시트 기본 예시 (수식이 바로 계산되는 상태로 보여준다)
-  const data = emptySheet();
-  const head = ['구분', '항목명', '단가', '수량', '금액', '비고'];
-  head.forEach((h, i) => {
-    data[0][i] = h;
-  });
-  const rows: [string, string, string, string, string][] = [
-    ['기획', '디자인 시안', '500000', '3', ''],
-    ['개발', '시스템 구축', '1200000', '2', ''],
-    ['마케팅', '런칭 캠페인', '350000', '4', ''],
-  ];
-  rows.forEach((row, i) => {
-    const r = i + 1;
-    data[r][0] = row[0];
-    data[r][1] = row[1];
-    data[r][2] = row[2];
-    data[r][3] = row[3];
-    data[r][4] = `=C${r + 1}*D${r + 1}`;
-  });
-  data[4][1] = '합계';
-  data[4][4] = '=SUM(E2:E4)';
-  data[5][1] = '평균 단가';
-  data[5][2] = '=ROUND(AVERAGE(C2:C4), 0)';
-  data[6][1] = '판정';
-  data[6][4] = '=IF(E5>=10000000, "목표 달성", "미달")';
-  data[7][1] = '항목 수';
-  data[7][2] = '=COUNTA(B2:B4)';
+  // 새 스프레드시트는 예시 데이터 없이 빈 그리드로 시작합니다.
   return {
     tabs: [
       {
         id: 'sheet_1',
         name: '시트 1',
-        data,
+        data: emptySheet(),
         formats: {},
         colWidths: [],
       },

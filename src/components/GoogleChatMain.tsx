@@ -56,7 +56,8 @@ import {
   Reply,
   Bell,
   PanelLeftOpen,
-  PanelLeftClose
+  PanelLeftClose,
+  Languages
 } from 'lucide-react';
 import { 
   Space, 
@@ -87,6 +88,11 @@ import { LocationPickerModal } from './LocationPickerModal';
 import { YouTubeHubModal } from './YouTubeHubModal';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
 import { RichText } from './RichText';
+import { MessageTranslateModal, TranslatedBlock, MessageTranslationState } from './MessageTranslate';
+import { Contact } from '../services/contactsService';
+import { contactNameOf } from '../services/contactsService';
+import { InviteBell } from './InviteCenter';
+import type { Invite } from '../services/inviteService';
 
 interface GoogleChatMainProps {
   space: Space;
@@ -129,6 +135,14 @@ interface GoogleChatMainProps {
   onOpenYouTubeView?: () => void;
   onCreateTask?: (title: string) => void;
   onCreateReminder?: (text: string, minutes: number) => void;
+  /** 연락처(별명) 목록 — 저장한 이름으로 대화 상대를 표시합니다 */
+  contacts?: Contact[];
+  onOpenContacts?: () => void;
+  /** 허들: 진행 중인 회의가 있으면 같은 방으로, 없으면 새 회의를 만들어 링크를 올립니다 */
+  onOpenHuddle?: () => void;
+  invites?: Invite[];
+  onAcceptInvite?: (invite: Invite) => void;
+  onDeclineInvite?: (invite: Invite) => void;
 }
 
 const CAFE_EMOJIS = ['👍', '❤️', '☕', '🥐', '🌿', '🍰', '🥨', '💡', '🎉'];
@@ -193,6 +207,12 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   onOpenYouTubeView,
   onCreateTask,
   onCreateReminder,
+  contacts = [],
+  onOpenContacts,
+  onOpenHuddle,
+  invites = [],
+  onAcceptInvite,
+  onDeclineInvite,
 }) => {
   const [text, setText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -241,13 +261,13 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
   // Space Canvas Drawer (Slack Canvas Feature)
   const [isCanvasOpen, setIsCanvasOpen] = useState(false);
-  const [canvasText, setCanvasText] = useState(space.canvasContent || `# #${space.name} 실시간 협업 캔버스\n\n- 팀 목표 및 회의 안건\n- 참고 링크 및 리소스\n- 빠른 메모를 기록해보세요!`);
+  const [canvasText, setCanvasText] = useState(space.canvasContent || '');
   const [canvasSavedToast, setCanvasSavedToast] = useState(false);
 
   // Quick Poll Modal
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
-  const [pollOptions, setPollOptions] = useState(['옵션 1', '옵션 2', '옵션 3']);
+  const [pollOptions, setPollOptions] = useState(['', '', '']);
 
   // Jump to message highlight
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
@@ -264,6 +284,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
   // Emoji Reaction Picker Popover target message ID (이모티콘 반응 팝오버)
   const [activeEmojiPickerMessageId, setActiveEmojiPickerMessageId] = useState<string | null>(null);
+
+  // Message translation (per message language + original/translation toggle)
+  const [translations, setTranslations] = useState<Record<string, MessageTranslationState>>({});
+  const [translateTargetMessage, setTranslateTargetMessage] = useState<Message | null>(null);
 
   // Slack Features: Message Reminders & Forwarding & 3-dots Context Menu
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null);
@@ -1225,25 +1249,28 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       {/* HEADER in Cafe Beige */}
       <header className="h-15 sm:h-16 px-3 sm:px-5 border-b border-[#EBE5DA] bg-[#FDFBF7] flex items-center justify-between z-10 cafe-shadow min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          {/* Sidebar Toggle for Desktop/Tablet */}
-          {onToggleCollapseSidebar && (
+          {/* 서랍 통합 토글: 왼쪽/오른쪽 서랍을 하나의 컨트롤로 */}
+          <div className="flex items-center rounded-xl border border-[#EBE5DA] bg-white p-0.5 shrink-0 shadow-2xs" data-testid="drawer-toggle">
             <button
-              onClick={onToggleCollapseSidebar}
-              className="hidden md:flex p-2 rounded-xl hover:bg-[#F4EFE6] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer shrink-0"
-              title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.innerWidth < 768) onToggleMobileSidebar();
+                else onToggleCollapseSidebar?.();
+              }}
+              className="p-1.5 rounded-lg hover:bg-[#F4EFE6] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer"
+              title={isSidebarCollapsed ? '왼쪽 서랍 열기 (채팅 목록)' : '왼쪽 서랍 닫기 (채팅 목록)'}
+              aria-label="왼쪽 서랍 토글"
             >
               {isSidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
             </button>
-          )}
-
-          {/* Mobile Drawer Toggle */}
-          <button
-            onClick={onToggleMobileSidebar}
-            className="md:hidden p-2 rounded-xl hover:bg-[#F4EFE6] text-[#7A6A5C] shrink-0"
-            title="메뉴 열기"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+            <button
+              onClick={onToggleRightPanel}
+              className="p-1.5 rounded-lg hover:bg-[#F4EFE6] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer"
+              title="오른쪽 서랍 열기/닫기 (할 일·스레드·도구)"
+              aria-label="오른쪽 서랍 토글"
+            >
+              <PanelRightOpen className="w-4 h-4" />
+            </button>
+          </div>
 
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#E6DCD0] border border-[#DCD3C5] flex items-center justify-center text-[#3E2723] font-bold shrink-0">
@@ -1275,6 +1302,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
         {/* Right Header Controls - Consolidated, Zero Duplicate Buttons */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* 초대 알림 센터 (벨 + 배지) */}
+          {onAcceptInvite && onDeclineInvite && (
+            <InviteBell invites={invites} onAccept={onAcceptInvite} onDecline={onDeclineInvite} />
+          )}
           {/* Notification Status Toggle (Real Native & Audio Notification) */}
           {onToggleNotifications && (
             <button
@@ -1305,9 +1336,23 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             <span className="hidden sm:inline font-bold">Gemini AI</span>
           </button>
 
+          {/* 새 회의 시작 (링크는 채팅방에 자동으로 올라갑니다) */}
+          <button
+            onClick={onOpenMeetModal}
+            data-testid="start-meeting"
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer bg-[#EAF7EF] hover:bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0]"
+            title="새 회의를 만들고 링크를 채팅방에 자동으로 올립니다 (모두 같은 회의로 입장)"
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">회의</span>
+          </button>
+
           {/* Audio Huddle (Voice Call) */}
           <button
-            onClick={() => setIsHuddleActive(!isHuddleActive)}
+            onClick={() => {
+              if (onOpenHuddle) onOpenHuddle();
+              else setIsHuddleActive(!isHuddleActive);
+            }}
             className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
               isHuddleActive
                 ? 'bg-[#15803D] text-white border-[#15803D] shadow-xs animate-pulse'
@@ -1319,14 +1364,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             <span className="hidden md:inline">{isHuddleActive ? '통화 중' : '음성 허들'}</span>
           </button>
 
-          {/* Right Auxiliary Panel Toggle (할 일 / 스레드 / 캔버스) */}
-          <button
-            onClick={onToggleRightPanel}
-            className="p-1.5 sm:p-2 rounded-xl hover:bg-[#F4EFE6] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer"
-            title="우측 패널 열기/닫기"
-          >
-            <PanelRightOpen className="w-4 h-4" />
-          </button>
+          {/* Right Auxiliary Panel Toggle is merged into the unified drawer control above */}
 
           {/* User pill & Direct Logout */}
           <div className="flex items-center gap-1 sm:gap-1.5 pl-1.5 border-l border-[#EBE5DA]">
@@ -1522,6 +1560,17 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       <div className="flex-1 flex overflow-hidden">
         {/* Messages Scroll Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          {displayedMessages.length === 0 && (
+            <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-center gap-2 py-10">
+              <div className="w-12 h-12 rounded-2xl bg-[#F4EFE6] flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-[#C18C5D]" />
+              </div>
+              <p className="text-sm font-bold text-[#3E2723]">아직 메시지가 없습니다</p>
+              <p className="text-[11px] text-[#7A6A5C] leading-relaxed">
+                첫 메시지를 보내 대화를 시작하세요.<br />회의 버튼을 누르면 새 회의 링크가 이 채팅방에 자동으로 올라갑니다.
+              </p>
+            </div>
+          )}
           {displayedMessages.map((msg) => {
             if (msg.isSystemMessage) {
               return (
@@ -1538,6 +1587,9 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             const isMine = msg.senderId === currentUser.id;
             const isHighlighted = highlightedMessageId === msg.id;
             const isEditing = editingMessageId === msg.id;
+            const senderLabel = isMine
+              ? msg.senderName
+              : contactNameOf(contacts, msg.senderId, '', msg.senderName);
 
             return (
               <div
@@ -1559,7 +1611,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <div className={`flex-1 min-w-0 ${isMine ? 'flex flex-col items-end' : ''}`}>
                   <div className={`flex items-baseline gap-2 mb-1 ${isMine ? 'flex-row-reverse text-right' : ''}`}>
                     <span className={`text-xs font-bold ${isMine ? 'text-[#1A73E8]' : 'text-[#2C2520]'}`}>
-                      {msg.senderName}{isMine ? ' (나)' : ''}
+                      {senderLabel}{isMine ? ' (나)' : ''}
                     </span>
                     {msg.senderRole && <span className="text-[10px] text-[#A89A8E] hidden sm:inline">{msg.senderRole}</span>}
                     <span className="text-[10px] text-[#A89A8E] font-mono">{msg.timestamp}</span>
@@ -1669,6 +1721,24 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                         <div className={`whitespace-pre-wrap ${isMine ? 'text-white font-medium' : 'text-[#2C2520]'}`}>
                           <RichText text={msg.content} isMine={isMine} />
                         </div>
+                      )}
+
+                      {/* Translated view (메시지 번역 결과) */}
+                      {translations[msg.id] && (
+                        <TranslatedBlock
+                          state={translations[msg.id]}
+                          isMine={isMine}
+                          onToggle={() =>
+                            setTranslations((prev) => ({
+                              ...prev,
+                              [msg.id]: {
+                                ...prev[msg.id],
+                                show: prev[msg.id].show === 'translation' ? 'original' : 'translation',
+                              },
+                            }))
+                          }
+                          onRetranslate={() => setTranslateTargetMessage(msg)}
+                        />
                       )}
 
                       {/* Fallback Auto-Player if message text contains a YouTube URL without explicit attachment */}
@@ -1828,6 +1898,16 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     <Reply className="w-3.5 h-3.5" />
                   </button>
 
+                  {/* Translate Button */}
+                  <button
+                    type="button"
+                    onClick={() => setTranslateTargetMessage(msg)}
+                    className="p-1 hover:bg-[#F4EFE6] rounded-lg text-[#7A6A5C] hover:text-[#0369A1] cursor-pointer"
+                    title="메시지 번역 (모든 언어)"
+                  >
+                    <Languages className="w-3.5 h-3.5" />
+                  </button>
+
                   {/* Thread Panel Button */}
                   <button
                     type="button"
@@ -1911,6 +1991,14 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
                 {/* Mobile Touch Action Buttons (모바일 전용 간편 버튼) */}
                 <div className="sm:hidden flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setTranslateTargetMessage(msg)}
+                    className="p-1 text-[#0369A1] hover:bg-[#E0F2FE] rounded-lg cursor-pointer"
+                    title="메시지 번역"
+                  >
+                    <Languages className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -2681,6 +2769,18 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
           </div>
         </div>
       )}
+
+      {/* Message translation modal (모든 언어) */}
+      <MessageTranslateModal
+        open={!!translateTargetMessage}
+        messageId={translateTargetMessage?.id || ''}
+        originalText={translateTargetMessage?.content || ''}
+        onClose={() => setTranslateTargetMessage(null)}
+        onTranslated={(state) => {
+          setTranslations((prev) => ({ ...prev, [state.messageId]: state }));
+          setTranslateTargetMessage(null);
+        }}
+      />
 
       {/* Image Lightbox */}
       {lightboxImage && (

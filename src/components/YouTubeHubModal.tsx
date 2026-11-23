@@ -58,25 +58,7 @@ export const YouTubeHubModal: React.FC<YouTubeHubModalProps> = ({
     return null;
   };
 
-  // 열릴 때: 실제 인기 영상 목록을 불러옵니다 (서버 불필요)
-  useEffect(() => {
-    if (!isOpen) return;
-    let cancelled = false;
-    (async () => {
-      setIsSearching(true);
-      const trend = await fetchYouTubeTrending(14);
-      if (cancelled) return;
-      setSearchResults(trend);
-      setSearchSource(trend.length > 0 ? 'trending' : 'none');
-      if (trend.length === 0) {
-        setSearchError('인기 영상 목록을 불러오지 못했습니다. 검색어를 입력하거나 유튜브 링크를 붙여넣어 주세요.');
-      }
-      setIsSearching(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen]);
+  // 열 때 인기/추천 영상을 자동으로 불러오지 않습니다. 검색하기 전에는 빈 안내만 표시됩니다.
 
   const handleSearch = async (queryText: string) => {
     setIsSearching(true);

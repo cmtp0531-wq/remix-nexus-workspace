@@ -57,15 +57,39 @@ import { fetchRealDocContent, saveRealDocContent } from '../services/googleWorks
 // ============================================================
 export type SlideElementType =
   | 'text'
+  | 'image'
   | 'rect'
   | 'roundRect'
   | 'circle'
   | 'triangle'
+  | 'rightTriangle'
+  | 'diamond'
+  | 'pentagon'
+  | 'hexagon'
+  | 'octagon'
   | 'star'
+  | 'star5'
+  | 'star6'
+  | 'star8'
   | 'arrow'
+  | 'arrowUp'
+  | 'arrowDown'
+  | 'arrowLeft'
+  | 'arrowRight'
+  | 'arrowUpDown'
   | 'line'
+  | 'arrowLine'
+  | 'speechRect'
+  | 'speechRound'
+  | 'speechThought'
+  | 'heart'
+  | 'cross'
+  | 'ribbon'
   | 'badge'
-  | 'image';
+  | 'flowProcess'
+  | 'flowDecision'
+  | 'flowData'
+  | 'flowTerminal';
 
 export interface SlideElement {
   id: string;
@@ -92,8 +116,11 @@ export interface SlideElement {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  dash?: 'solid' | 'dashed' | 'dotted';
   radius?: number;
   shadow?: boolean;
+  /** 같은 그룹으로 묶인 요소들은 함께 선택·이동됩니다. */
+  groupId?: string;
   imageUrl?: string;
 }
 
@@ -606,11 +633,204 @@ const applyPaletteToSlide = (slide: Slide, palette: PaletteDef): Slide => {
 };
 
 // ============================================================
-// ELEMENT RENDERER (캔버스 / 썸네일 / 발표 / 인쇄 공용)
+// 도형 라이브러리 (SVG 기반 30종 이상)
 // ============================================================
-const STAR_POINTS = '50,3 61,37 97,37 68,58 79,93 50,72 21,93 32,58 3,37 39,37';
-const ARROW_POINTS = '0,36 58,36 58,10 100,50 58,90 58,64 0,64';
+const polygonPoints = (sides: number, rotationDeg = -90, inset = 0): string => {
+  const cx = 50;
+  const cy = 50;
+  const r = 49 - inset;
+  const pts: string[] = [];
+  for (let i = 0; i < sides; i += 1) {
+    const angle = ((rotationDeg + (360 / sides) * i) * Math.PI) / 180;
+    pts.push(`${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`);
+  }
+  return pts.join(' ');
+};
+
+const starPoints = (points: number, innerRatio = 0.42): string => {
+  const cx = 50;
+  const cy = 50;
+  const outer = 49;
+  const inner = outer * innerRatio;
+  const pts: string[] = [];
+  for (let i = 0; i < points * 2; i += 1) {
+    const r = i % 2 === 0 ? outer : inner;
+    const angle = ((-90 + (180 / points) * i) * Math.PI) / 180;
+    pts.push(`${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`);
+  }
+  return pts.join(' ');
+};
+
+const STAR_POINTS = starPoints(5);
+const ARROW_POINTS = '0,33 55,33 55,8 100,50 55,92 55,67 0,67';
+const ARROW_UP_POINTS = '33,100 33,45 8,45 50,0 92,45 67,45 67,100';
+const ARROW_DOWN_POINTS = '33,0 33,55 8,55 50,100 92,55 67,55 67,0';
+const ARROW_LEFT_POINTS = '100,33 45,33 45,8 0,50 45,92 45,67 100,67';
+const ARROW_UPDOWN_POINTS = '50,0 78,26 60,26 60,74 78,74 50,100 22,74 40,74 40,26 22,26';
 const TRIANGLE_POINTS = '50,4 97,96 3,96';
+const RIGHT_TRIANGLE_POINTS = '3,3 3,97 97,97';
+const DIAMOND_POINTS = '50,2 98,50 50,98 2,50';
+const HEXAGON_POINTS = '25,4 75,4 98,50 75,96 25,96 2,50';
+const OCTAGON_POINTS = '30,3 70,3 97,30 97,70 70,97 30,97 3,70 3,30';
+const CROSS_POINTS = '36,3 64,3 64,36 97,36 97,64 64,64 64,97 36,97 36,64 3,64 3,36 36,36';
+const FLOW_DATA_POINTS = '20,4 98,4 80,96 2,96';
+const RIBBON_PATH =
+  'M2,22 L98,22 L98,70 L74,70 L84,94 L50,74 L16,94 L26,70 L2,70 Z';
+const HEART_PATH =
+  'M50,92 C18,72 4,54 4,36 C4,20 16,8 30,8 C39,8 46,13 50,20 C54,13 61,8 70,8 C84,8 96,20 96,36 C96,54 82,72 50,92 Z';
+const SPEECH_RECT_PATH =
+  'M4,8 L96,8 L96,70 L44,70 L24,94 L26,70 L4,70 Z';
+const SPEECH_ROUND_PATH =
+  'M50,6 C76,6 96,22 96,42 C96,62 76,78 50,78 C43,78 37,77 31,75 L12,90 L18,68 C9,62 4,53 4,42 C4,22 24,6 50,6 Z';
+
+const isPolygonShape = (type: SlideElementType) =>
+  ['triangle', 'rightTriangle', 'diamond', 'pentagon', 'hexagon', 'octagon', 'star', 'star5', 'star6', 'star8', 'arrow', 'arrowUp', 'arrowDown', 'arrowLeft', 'arrowRight', 'arrowUpDown', 'cross', 'flowData', 'flowDecision'].includes(
+    type
+  );
+
+const polygonFor = (type: SlideElementType): string => {
+  switch (type) {
+    case 'rightTriangle':
+      return RIGHT_TRIANGLE_POINTS;
+    case 'diamond':
+    case 'flowDecision':
+      return DIAMOND_POINTS;
+    case 'pentagon':
+      return polygonPoints(5);
+    case 'hexagon':
+      return HEXAGON_POINTS;
+    case 'octagon':
+      return OCTAGON_POINTS;
+    case 'star':
+    case 'star5':
+      return STAR_POINTS;
+    case 'star6':
+      return starPoints(6, 0.5);
+    case 'star8':
+      return starPoints(8, 0.55);
+    case 'arrow':
+    case 'arrowRight':
+      return ARROW_POINTS;
+    case 'arrowUp':
+      return ARROW_UP_POINTS;
+    case 'arrowDown':
+      return ARROW_DOWN_POINTS;
+    case 'arrowLeft':
+      return ARROW_LEFT_POINTS;
+    case 'arrowUpDown':
+      return ARROW_UPDOWN_POINTS;
+    case 'cross':
+      return CROSS_POINTS;
+    case 'flowData':
+      return FLOW_DATA_POINTS;
+    default:
+      return TRIANGLE_POINTS;
+  }
+};
+
+/** 도형 목록 (팔레트 UI·기본 크기 정의) */
+export const SHAPE_LIBRARY: {
+  type: SlideElementType;
+  label: string;
+  group: '기본' | '다각형·별' | '화살표·선' | '말풍선·기타' | '순서도';
+  size?: { w: number; h: number };
+}[] = [
+  { type: 'rect', label: '사각형', group: '기본' },
+  { type: 'roundRect', label: '둥근 사각형', group: '기본' },
+  { type: 'circle', label: '원/타원', group: '기본' },
+  { type: 'triangle', label: '삼각형', group: '기본' },
+  { type: 'rightTriangle', label: '직각삼각형', group: '기본' },
+  { type: 'diamond', label: '마름모', group: '기본' },
+  { type: 'pentagon', label: '오각형', group: '다각형·별' },
+  { type: 'hexagon', label: '육각형', group: '다각형·별' },
+  { type: 'octagon', label: '팔각형', group: '다각형·별' },
+  { type: 'star5', label: '별 (5각)', group: '다각형·별' },
+  { type: 'star6', label: '별 (6각)', group: '다각형·별' },
+  { type: 'star8', label: '별 (8각)', group: '다각형·별' },
+  { type: 'arrowRight', label: '화살표 →', group: '화살표·선' },
+  { type: 'arrowLeft', label: '화살표 ←', group: '화살표·선' },
+  { type: 'arrowUp', label: '화살표 ↑', group: '화살표·선' },
+  { type: 'arrowDown', label: '화살표 ↓', group: '화살표·선' },
+  { type: 'arrowUpDown', label: '양방향 ↕', group: '화살표·선', size: { w: 120, h: 240 } },
+  { type: 'line', label: '직선', group: '화살표·선', size: { w: 420, h: 24 } },
+  { type: 'arrowLine', label: '화살표선', group: '화살표·선', size: { w: 420, h: 40 } },
+  { type: 'speechRect', label: '말풍선', group: '말풍선·기타' },
+  { type: 'speechRound', label: '둥근 말풍선', group: '말풍선·기타' },
+  { type: 'speechThought', label: '생각 말풍선', group: '말풍선·기타' },
+  { type: 'heart', label: '하트', group: '말풍선·기타' },
+  { type: 'cross', label: '십자(+)', group: '말풍선·기타' },
+  { type: 'ribbon', label: '리본', group: '말풍선·기타' },
+  { type: 'badge', label: '배지', group: '말풍선·기타', size: { w: 220, h: 48 } },
+  { type: 'flowProcess', label: '프로세스', group: '순서도' },
+  { type: 'flowDecision', label: '판단', group: '순서도' },
+  { type: 'flowData', label: '데이터', group: '순서도' },
+  { type: 'flowTerminal', label: '터미널', group: '순서도', size: { w: 260, h: 90 } },
+];
+
+const ShapeSvg: React.FC<{ el: SlideElement }> = ({ el }) => {
+  const fill = el.fill || 'transparent';
+  const stroke = el.stroke && el.stroke !== 'transparent' && (el.strokeWidth || 0) > 0 ? el.stroke : 'none';
+  const strokeWidth = el.strokeWidth || 0;
+  const dashArray = el.dash === 'dashed' ? `${Math.max(4, strokeWidth * 2)} ${Math.max(3, strokeWidth * 1.4)}` : el.dash === 'dotted' ? `${Math.max(1, strokeWidth * 0.6)} ${Math.max(3, strokeWidth * 1.6)}` : undefined;
+  const common = {
+    fill,
+    stroke,
+    strokeWidth,
+    strokeDasharray: dashArray,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    vectorEffect: 'non-scaling-stroke' as const,
+  };
+  const svg = (children: React.ReactNode) => (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block', overflow: 'visible' }}>
+      {children}
+    </svg>
+  );
+
+  switch (el.type) {
+    case 'rect':
+    case 'flowProcess':
+      return svg(<rect x={0.5} y={0.5} width={99} height={99} rx={el.radius || 0} {...common} />);
+    case 'roundRect':
+      return svg(<rect x={0.5} y={0.5} width={99} height={99} rx={el.radius ?? 18} {...common} />);
+    case 'flowTerminal':
+      return svg(<rect x={0.5} y={0.5} width={99} height={99} rx={Math.min(49, (el.radius ?? 50))} {...common} />);
+    case 'circle':
+      return svg(<ellipse cx={50} cy={50} rx={49.5} ry={49.5} {...common} />);
+    case 'line':
+      return svg(<line x1={0} y1={50} x2={100} y2={50} {...common} />);
+    case 'arrowLine':
+      return svg(
+        <>
+          <line x1={0} y1={50} x2={92} y2={50} {...common} />
+          <polygon points="92,32 100,50 92,68" fill={stroke === 'none' ? fill === 'transparent' ? '#2C2520' : fill : stroke} stroke="none" />
+        </>
+      );
+    case 'speechRect':
+      return svg(<path d={SPEECH_RECT_PATH} {...common} />);
+    case 'speechRound':
+      return svg(<path d={SPEECH_ROUND_PATH} {...common} />);
+    case 'speechThought':
+      return svg(
+        <>
+          <ellipse cx={52} cy={38} rx={44} ry={30} {...common} />
+          <ellipse cx={26} cy={78} rx={12} ry={9} {...common} />
+          <ellipse cx={12} cy={93} rx={7} ry={5} {...common} />
+        </>
+      );
+    case 'heart':
+      return svg(<path d={HEART_PATH} {...common} />);
+    case 'ribbon':
+      return svg(<path d={RIBBON_PATH} {...common} />);
+    case 'badge':
+      return svg(<rect x={0.5} y={0.5} width={99} height={99} rx={50} {...common} />);
+    default:
+      if (isPolygonShape(el.type)) return svg(<polygon points={polygonFor(el.type)} {...common} />);
+      return svg(<rect x={0.5} y={0.5} width={99} height={99} rx={el.radius || 0} {...common} />);
+  }
+};
+
+const hasTextLayer = (type: SlideElementType) => type !== 'image';
 
 const ElementVisual: React.FC<{ el: SlideElement }> = ({ el }) => {
   const common: React.CSSProperties = { width: '100%', height: '100%', boxSizing: 'border-box' };
@@ -626,105 +846,67 @@ const ElementVisual: React.FC<{ el: SlideElement }> = ({ el }) => {
     );
   }
 
-  if (el.type === 'triangle' || el.type === 'star' || el.type === 'arrow') {
-    const points = el.type === 'triangle' ? TRIANGLE_POINTS : el.type === 'star' ? STAR_POINTS : ARROW_POINTS;
-    return (
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={common}>
-        <polygon
-          points={points}
-          fill={el.fill || '#C18C5D'}
-          stroke={el.stroke && el.stroke !== 'transparent' ? el.stroke : 'none'}
-          strokeWidth={el.strokeWidth || 0}
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-    );
-  }
+  const isText = el.type === 'text';
+  const text = el.text || '';
+  const showText = hasTextLayer(el.type) && (text.length > 0 || isText);
+  const isBadge = el.type === 'badge';
 
-  if (el.type === 'line') {
-    return (
-      <div style={{ ...common, display: 'flex', alignItems: 'center' }}>
-        <div
-          style={{
-            width: '100%',
-            height: Math.max(2, el.strokeWidth || 4),
-            background: el.stroke && el.stroke !== 'transparent' ? el.stroke : el.fill || '#C18C5D',
-            borderRadius: 999,
-          }}
-        />
-      </div>
-    );
-  }
-
-  if (el.type === 'rect' || el.type === 'roundRect' || el.type === 'circle') {
-    return (
-      <div
-        style={{
-          ...common,
-          background: el.fill || 'transparent',
-          borderRadius: el.type === 'circle' ? '50%' : el.radius ?? (el.type === 'roundRect' ? 24 : 0),
-          border: el.strokeWidth && el.stroke && el.stroke !== 'transparent' ? `${el.strokeWidth}px solid ${el.stroke}` : undefined,
-          boxShadow: el.shadow ? '0 18px 42px rgba(15, 23, 42, 0.18)' : undefined,
-        }}
-      />
-    );
-  }
-
-  if (el.type === 'badge') {
-    return (
-      <div
-        style={{
-          ...common,
-          background: el.fill || '#C18C5D',
-          borderRadius: 999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: el.color || '#FFFFFF',
-          fontFamily: el.fontFamily || "'Pretendard', sans-serif",
-          fontSize: el.fontSize || 16,
-          fontWeight: el.fontWeight || 700,
-          letterSpacing: 1,
-          padding: '0 12px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-        }}
-      >
-        {el.text}
-      </div>
-    );
-  }
-
-  // text
   return (
     <div
       style={{
         ...common,
+        position: 'relative',
         display: 'flex',
-        flexDirection: 'column',
-        justifyContent:
-          el.verticalAlign === 'middle' ? 'center' : el.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start',
-        color: el.color || '#2C2520',
-        fontFamily: el.fontFamily || "'Pretendard', 'Noto Sans KR', sans-serif",
-        fontSize: el.fontSize || 28,
-        fontWeight: el.fontWeight || 400,
-        fontStyle: el.italic ? 'italic' : 'normal',
-        textDecoration: el.underline ? 'underline' : 'none',
-        textAlign: el.align || 'left',
-        lineHeight: el.lineHeight ?? 1.35,
-        letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : '-0.01em',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'keep-all',
-        overflowWrap: 'break-word',
-        background: el.highlight || 'transparent',
-        padding: el.highlight ? '6px 12px' : '2px 2px',
-        borderRadius: el.highlight ? 10 : 0,
+        alignItems: 'center',
+        justifyContent: isBadge ? 'center' : undefined,
+        filter: el.shadow ? 'drop-shadow(0 14px 26px rgba(15,23,42,0.22))' : undefined,
       }}
     >
-      {el.text}
+      {!isText && <ShapeSvg el={el} />}
+      {showText && (
+        <div
+          style={{
+            position: isText ? 'relative' : 'absolute',
+            inset: isText ? undefined : 0,
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent:
+              el.verticalAlign === 'middle' || isBadge
+                ? 'center'
+                : el.verticalAlign === 'bottom'
+                ? 'flex-end'
+                : isText
+                ? 'flex-start'
+                : 'center',
+            alignItems: el.align === 'center' || isBadge ? 'center' : el.align === 'right' ? 'flex-end' : 'flex-start',
+            padding: isBadge ? '0 12px' : isText ? '2px 2px' : '8px 10px',
+            boxSizing: 'border-box',
+            color: el.color || '#FFFFFF',
+            fontFamily: el.fontFamily || "'Pretendard', 'Noto Sans KR', sans-serif",
+            fontSize: isBadge ? el.fontSize || 16 : el.fontSize || 28,
+            fontWeight: el.fontWeight || 400,
+            fontStyle: el.italic ? 'italic' : 'normal',
+            textDecoration: el.underline ? 'underline' : 'none',
+            textAlign: el.align || (isText ? 'left' : 'center'),
+            lineHeight: el.lineHeight ?? 1.35,
+            letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : isBadge ? '1px' : '-0.01em',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'keep-all',
+            overflowWrap: 'break-word',
+            overflow: 'hidden',
+            background: el.highlight || 'transparent',
+            borderRadius: el.highlight ? 10 : 0,
+          }}
+        >
+          {text}
+        </div>
+      )}
     </div>
   );
 };
+
 
 const SlideView: React.FC<{ slide: Slide; className?: string; showElements?: boolean }> = ({ slide, className, showElements = true }) => {
   const bgStyle: React.CSSProperties =
@@ -787,6 +969,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
   const [panelTab, setPanelTab] = useState<'design' | 'elements' | 'text' | 'images' | 'background'>('design');
   const [panelOpen, setPanelOpen] = useState(true);
   const [zoom, setZoom] = useState(62);
+  const [gridSnap, setGridSnap] = useState(true);
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [palette, setPalette] = useState<PaletteDef>(PALETTES[0]);
@@ -921,10 +1104,10 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
     const nextSelection = e.shiftKey
       ? isSelected
         ? selectedIds.filter((id) => id !== el.id)
-        : [...selectedIds, el.id]
+        : expandSelection([...selectedIds, el.id])
       : isSelected
       ? selectedIds
-      : [el.id];
+      : expandSelection([el.id]);
     setSelectedIds(nextSelection);
     if (el.locked) return;
 
@@ -999,6 +1182,11 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
         }
       });
     });
+    // 그리드 스냅 (20px 간격)
+    if (!bestV && gridSnap) {
+      const snappedX = Math.round(box.x / 20) * 20;
+      if (Math.abs(snappedX - box.x) <= 6) bestV = { delta: snappedX - box.x, line: snappedX };
+    }
     let bestH: { delta: number; line: number } | null = null;
     hCandidates.forEach((cand) => {
       hLines.forEach((line) => {
@@ -1008,6 +1196,10 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
         }
       });
     });
+    if (!bestH && gridSnap) {
+      const snappedY = Math.round(box.y / 20) * 20;
+      if (Math.abs(snappedY - box.y) <= 6) bestH = { delta: snappedY - box.y, line: snappedY };
+    }
     return {
       dx: dx + (bestV ? (bestV as { delta: number }).delta : 0),
       dy: dy + (bestH ? (bestH as { delta: number }).delta : 0),
@@ -1204,20 +1396,29 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
   };
 
   const addShape = (type: SlideElementType, over?: Partial<SlideElement>) => {
-    const size = type === 'line' ? { w: 420, h: 24 } : type === 'badge' ? { w: 220, h: 48 } : { w: 260, h: 180 };
+    const meta = SHAPE_LIBRARY.find((s) => s.type === type);
+    const size =
+      over?.w !== undefined && over?.h !== undefined
+        ? { w: over.w, h: over.h }
+        : meta?.size || (type === 'line' ? { w: 420, h: 24 } : type === 'badge' ? { w: 220, h: 48 } : { w: 260, h: 180 });
     const el = shapeEl(type, {
       ...size,
       x: Math.round((SLIDE_W - size.w) / 2),
       y: Math.round((SLIDE_H - size.h) / 2),
-      fill: type === 'line' ? 'transparent' : palette.accent,
-      stroke: type === 'line' ? palette.text : 'transparent',
-      strokeWidth: type === 'line' ? 4 : 0,
-      text: type === 'badge' ? 'BADGE' : undefined,
-      color: palette.bg,
-      fontSize: 16,
+      fill: type === 'line' || type === 'arrowLine' ? 'transparent' : palette.accent,
+      stroke: type === 'line' || type === 'arrowLine' ? palette.text : 'transparent',
+      strokeWidth: type === 'line' || type === 'arrowLine' ? 4 : 0,
+      text: type === 'badge' ? '배지' : undefined,
+      color: type === 'badge' ? palette.bg : '#FFFFFF',
+      fontSize: type === 'badge' ? 16 : 20,
+      fontWeight: type === 'badge' ? 700 : 500,
       ...over,
     });
     addElement(el);
+    if (!over?.text && type !== 'line' && type !== 'arrowLine' && type !== 'badge') {
+      // 도형을 추가하면 바로 텍스트를 입력할 수 있게 편집 모드로 진입합니다.
+      setEditingId(el.id);
+    }
   };
 
   const addImage = (url: string) => {
@@ -1282,6 +1483,104 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
   const selectAll = () => setSelectedIds(slide.elements.filter((el) => !el.locked).map((el) => el.id));
 
+  /** 그룹이면 그룹 전체를 함께 선택합니다. */
+  const expandSelection = (ids: string[]): string[] => {
+    const groupIds = new Set(
+      slide.elements.filter((el) => ids.includes(el.id) && el.groupId).map((el) => el.groupId as string)
+    );
+    if (groupIds.size === 0) return ids;
+    const expanded = new Set(ids);
+    slide.elements.forEach((el) => {
+      if (el.groupId && groupIds.has(el.groupId)) expanded.add(el.id);
+    });
+    return Array.from(expanded);
+  };
+
+  // ---------------- 정렬 / 분배 / 그룹 ----------------
+  const alignSelected = (mode: 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom') => {
+    const targets = slide.elements.filter((el) => selectedIds.includes(el.id) && !el.locked);
+    if (targets.length === 0) return;
+    pushHistory();
+    const minX = Math.min(...targets.map((el) => el.x));
+    const maxX = Math.max(...targets.map((el) => el.x + el.w));
+    const minY = Math.min(...targets.map((el) => el.y));
+    const maxY = Math.max(...targets.map((el) => el.y + el.h));
+    updateSlide(
+      (s) => ({
+        ...s,
+        elements: s.elements.map((el) => {
+          if (!selectedIds.includes(el.id) || el.locked) return el;
+          if (mode === 'left') return { ...el, x: minX };
+          if (mode === 'right') return { ...el, x: maxX - el.w };
+          if (mode === 'hcenter') return { ...el, x: Math.round((minX + maxX) / 2 - el.w / 2) };
+          if (mode === 'top') return { ...el, y: minY };
+          if (mode === 'bottom') return { ...el, y: maxY - el.h };
+          return { ...el, y: Math.round((minY + maxY) / 2 - el.h / 2) };
+        }),
+      }),
+      { history: false }
+    );
+  };
+
+  const distributeSelected = (axis: 'h' | 'v') => {
+    const targets = slide.elements.filter((el) => selectedIds.includes(el.id) && !el.locked);
+    if (targets.length < 3) {
+      showToast('분배하려면 요소를 3개 이상 선택해 주세요.');
+      return;
+    }
+    pushHistory();
+    const sorted = [...targets].sort((a, b) => (axis === 'h' ? a.x - b.x : a.y - b.y));
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const totalSpan = axis === 'h' ? last.x + last.w - first.x : last.y + last.h - first.y;
+    const sumSize = sorted.reduce((acc, el) => acc + (axis === 'h' ? el.w : el.h), 0);
+    const gap = (totalSpan - sumSize) / (sorted.length - 1);
+    const positions = new Map<string, number>();
+    let cursor = axis === 'h' ? first.x : first.y;
+    sorted.forEach((el) => {
+      positions.set(el.id, Math.round(cursor));
+      cursor += (axis === 'h' ? el.w : el.h) + gap;
+    });
+    updateSlide(
+      (s) => ({
+        ...s,
+        elements: s.elements.map((el) => {
+          const pos = positions.get(el.id);
+          if (pos === undefined) return el;
+          return axis === 'h' ? { ...el, x: pos } : { ...el, y: pos };
+        }),
+      }),
+      { history: false }
+    );
+    showToast(axis === 'h' ? '✓ 가로 간격을 균등하게 맞췄습니다.' : '✓ 세로 간격을 균등하게 맞췄습니다.');
+  };
+
+  const groupSelected = () => {
+    if (selectedIds.length < 2) {
+      showToast('그룹으로 묶으려면 요소를 2개 이상 선택해 주세요.');
+      return;
+    }
+    const groupId = uid('group');
+    updateSlide((s) => ({
+      ...s,
+      elements: s.elements.map((el) => (selectedIds.includes(el.id) ? { ...el, groupId } : el)),
+    }));
+    showToast('✓ 선택한 요소를 그룹으로 묶었습니다.');
+  };
+
+  const ungroupSelected = () => {
+    const hasGroup = slide.elements.some((el) => selectedIds.includes(el.id) && el.groupId);
+    if (!hasGroup) {
+      showToast('선택한 요소 중 그룹이 없습니다.');
+      return;
+    }
+    updateSlide((s) => ({
+      ...s,
+      elements: s.elements.map((el) => (selectedIds.includes(el.id) ? { ...el, groupId: undefined } : el)),
+    }));
+    showToast('✓ 그룹을 해제했습니다.');
+  };
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -1320,6 +1619,17 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
           e.preventDefault();
           removeSelected();
         }
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) ungroupSelected();
+        else groupSelected();
+        return;
+      }
+      if (mod && (e.key === ']' || e.key === '[')) {
+        e.preventDefault();
+        reorderElement(e.key === ']' ? 'front' : 'back');
         return;
       }
       if (e.key === 'Escape') {
@@ -1626,6 +1936,16 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
         <button
+          onClick={() => setGridSnap((v) => !v)}
+          className={`px-2 py-1 rounded-lg text-[11px] font-semibold ml-1 ${
+            gridSnap ? 'bg-white text-[#3E2723] border border-[#C18C5D]' : 'text-[#7A6A5C] hover:bg-white'
+          }`}
+          title="그리드·중앙선 스냅 켜기/끄기"
+          data-testid="grid-snap-toggle"
+        >
+          스냅 {gridSnap ? 'ON' : 'OFF'}
+        </button>
+        <button
           onClick={() => {
             const area = scrollAreaRef.current;
             if (!area) return;
@@ -1776,31 +2096,59 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
             {panelTab === 'elements' && (
               <div className="p-3">
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#7A6A5C] mb-2">도형</h3>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[
-                    { type: 'rect' as SlideElementType, icon: Square, label: '사각형' },
-                    { type: 'roundRect' as SlideElementType, icon: Square, label: '둥근' },
-                    { type: 'circle' as SlideElementType, icon: Circle, label: '원' },
-                    { type: 'triangle' as SlideElementType, icon: Shapes, label: '삼각' },
-                    { type: 'star' as SlideElementType, icon: Star, label: '별' },
-                    { type: 'arrow' as SlideElementType, icon: ArrowRight, label: '화살표' },
-                    { type: 'line' as SlideElementType, icon: Minus, label: '직선' },
-                    { type: 'badge' as SlideElementType, icon: Type, label: '배지' },
-                  ].map((shape) => (
-                    <button
-                      key={shape.type}
-                      onClick={() => addShape(shape.type)}
-                      data-testid={shape.type === 'rect' ? 'element-rect' : undefined}
-                      className="flex flex-col items-center gap-1 py-2 rounded-lg border border-[#EBE5DA] hover:border-[#C18C5D] hover:bg-[#FAF7F2] text-[9px] text-[#5C5046] font-semibold"
-                      title={`${shape.label} 추가`}
-                    >
-                      <shape.icon className="w-4 h-4" />
-                      {shape.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-2 gap-1.5 mt-2">
+                <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#7A6A5C] mb-1">도형 {SHAPE_LIBRARY.length}종</h3>
+                <p className="text-[9.5px] text-[#A89A8E] mb-2">클릭하면 캔버스 중앙에 추가됩니다 · 더블클릭으로 글자 입력</p>
+                {(['기본', '다각형·별', '화살표·선', '말풍선·기타', '순서도'] as const).map((group) => (
+                  <div key={group} className="mb-3">
+                    <p className="text-[9.5px] font-bold text-[#A89A8E] mb-1">{group}</p>
+                    <div className="grid grid-cols-4 gap-1">
+                      {SHAPE_LIBRARY.filter((shape) => shape.group === group).map((shape) => (
+                        <button
+                          key={shape.type}
+                          onClick={() => addShape(shape.type)}
+                          data-testid={shape.type === 'rect' ? 'element-rect' : `element-${shape.type}`}
+                          className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg border border-[#EBE5DA] hover:border-[#C18C5D] hover:bg-[#FAF7F2] text-[8.5px] text-[#5C5046] font-semibold"
+                          title={`${shape.label} 추가`}
+                        >
+                          <span className="w-6 h-6 flex items-center justify-center pointer-events-none">
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: 20, height: 20 }}>
+                              {isPolygonShape(shape.type) ? (
+                                <polygon points={polygonFor(shape.type)} fill="#C18C5D" />
+                              ) : shape.type === 'circle' ? (
+                                <ellipse cx={50} cy={50} rx={48} ry={48} fill="#C18C5D" />
+                              ) : shape.type === 'line' ? (
+                                <line x1={4} y1={50} x2={96} y2={50} stroke="#C18C5D" strokeWidth={10} strokeLinecap="round" />
+                              ) : shape.type === 'arrowLine' ? (
+                                <>
+                                  <line x1={4} y1={50} x2={80} y2={50} stroke="#C18C5D" strokeWidth={9} strokeLinecap="round" />
+                                  <polygon points="78,32 98,50 78,68" fill="#C18C5D" />
+                                </>
+                              ) : shape.type === 'heart' ? (
+                                <path d={HEART_PATH} fill="#C18C5D" />
+                              ) : shape.type === 'speechRect' ? (
+                                <path d={SPEECH_RECT_PATH} fill="#C18C5D" />
+                              ) : shape.type === 'speechRound' ? (
+                                <path d={SPEECH_ROUND_PATH} fill="#C18C5D" />
+                              ) : shape.type === 'speechThought' ? (
+                                <>
+                                  <ellipse cx={52} cy={38} rx={44} ry={30} fill="#C18C5D" />
+                                  <ellipse cx={26} cy={78} rx={12} ry={9} fill="#C18C5D" />
+                                </>
+                              ) : shape.type === 'ribbon' ? (
+                                <path d={RIBBON_PATH} fill="#C18C5D" />
+                              ) : (
+                                <rect x={4} y={4} width={92} height={92} rx={shape.type === 'roundRect' || shape.type === 'badge' ? 30 : shape.type === 'flowTerminal' ? 46 : 4} fill="#C18C5D" />
+                              )}
+                            </svg>
+                          </span>
+                          {shape.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                <div className="grid grid-cols-2 gap-1.5 mt-1">
                   <button
                     onClick={() => addShape('roundRect', { w: 300, h: 150, fill: palette.surface, shadow: true })}
                     className="py-2 rounded-lg border border-[#EBE5DA] text-[10px] font-semibold hover:bg-[#FAF7F2]"
@@ -1814,7 +2162,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                         h: 120,
                         fill: palette.surface,
                         shadow: false,
-                        text: '한 줄 강조 문장을 적어보세요',
+                        text: '강조 문장을 적어보세요',
                       })
                     }
                     className="py-2 rounded-lg border border-[#EBE5DA] text-[10px] font-semibold hover:bg-[#FAF7F2]"
@@ -1845,7 +2193,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                         {textColorChoices.map((color) => (
                           <button
                             key={color}
-                            onClick={() => patchElement(selectedElement.id, { stroke: color })}
+                            onClick={() => patchElement(selectedElement.id, { stroke: color, strokeWidth: Math.max(2, selectedElement.strokeWidth || 0) })}
                             className="w-6 h-6 rounded-md border border-[#D9D2C6]"
                             style={{ background: color }}
                           />
@@ -1857,12 +2205,34 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                       <input
                         type="range"
                         min={0}
-                        max={12}
+                        max={16}
                         value={selectedElement.strokeWidth || 0}
                         onChange={(e) => patchElement(selectedElement.id, { strokeWidth: Number(e.target.value) }, { history: false })}
                         className="w-full accent-[#C18C5D]"
                       />
                     </label>
+                    <div>
+                      <p className="text-[10px] text-[#7A6A5C] mb-1">선 스타일</p>
+                      <div className="flex gap-1">
+                        {([
+                          { value: 'solid' as const, label: '실선' },
+                          { value: 'dashed' as const, label: '점선' },
+                          { value: 'dotted' as const, label: '점박이' },
+                        ]).map((dash) => (
+                          <button
+                            key={dash.value}
+                            onClick={() => patchElement(selectedElement.id, { dash: dash.value })}
+                            className={`flex-1 py-1 rounded-md border text-[9.5px] font-semibold ${
+                              (selectedElement.dash || 'solid') === dash.value
+                                ? 'border-[#C18C5D] bg-[#FAF7F2] text-[#3E2723]'
+                                : 'border-[#EBE5DA] text-[#7A6A5C]'
+                            }`}
+                          >
+                            {dash.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <label className="block text-[10px] text-[#7A6A5C]">
                       모서리 둥글기 {selectedElement.radius || 0}px
                       <input
@@ -1871,6 +2241,17 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                         max={120}
                         value={selectedElement.radius || 0}
                         onChange={(e) => patchElement(selectedElement.id, { radius: Number(e.target.value) }, { history: false })}
+                        className="w-full accent-[#C18C5D]"
+                      />
+                    </label>
+                    <label className="block text-[10px] text-[#7A6A5C]">
+                      투명도 {Math.round((selectedElement.opacity ?? 1) * 100)}%
+                      <input
+                        type="range"
+                        min={5}
+                        max={100}
+                        value={Math.round((selectedElement.opacity ?? 1) * 100)}
+                        onChange={(e) => patchElement(selectedElement.id, { opacity: Number(e.target.value) / 100 }, { history: false })}
                         className="w-full accent-[#C18C5D]"
                       />
                     </label>
@@ -2028,16 +2409,9 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   <span className="text-[11px] font-bold text-[#3E2723]">내 컴퓨터에서 업로드</span>
                   <span className="text-[9px] text-[#A89A8E]">PNG · JPG · SVG (4MB 이하)</span>
                 </button>
-
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#7A6A5C] mt-4 mb-2">샘플 이미지</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {SAMPLE_IMAGES.map((img) => (
-                    <button key={img.label} onClick={() => addImage(img.url)} className="rounded-lg overflow-hidden border border-[#EBE5DA] hover:border-[#C18C5D]">
-                      <img src={img.url} alt={img.label} className="w-full h-16 object-cover" />
-                      <p className="text-[9px] text-[#5C5046] py-1">{img.label}</p>
-                    </button>
-                  ))}
-                </div>
+                <p className="text-[9.5px] text-[#A89A8E] leading-relaxed mt-2">
+                  예시 이미지는 제공하지 않습니다. 내 이미지를 업로드하거나 이미지 주소(URL)를 배경·도형에 직접 넣어 주세요.
+                </p>
 
                 {selectedElement?.type === 'image' && (
                   <div className="mt-4 space-y-3 border-t border-[#EBE5DA] pt-3">
@@ -2109,15 +2483,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   배경 이미지 업로드
                 </button>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  {SAMPLE_IMAGES.map((img) => (
-                    <button
-                      key={img.label}
-                      onClick={() => updateSlide((s) => ({ ...s, background: { type: 'image', imageUrl: img.url } }))}
-                      className="rounded-lg overflow-hidden border border-[#EBE5DA]"
-                    >
-                      <img src={img.url} alt={img.label} className="w-full h-12 object-cover" />
-                    </button>
-                  ))}
+                  <span className="col-span-2 text-[9.5px] text-[#A89A8E]">예시 배경 이미지는 없습니다 — 내 이미지를 업로드해 주세요.</span>
                 </div>
               </div>
             )}
@@ -2126,6 +2492,45 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
         {/* CANVAS + THUMBNAILS */}
         <div className="flex-1 flex flex-col min-w-0">
+          {/* ARRANGE BAR — 정렬 · 분배 · 그룹 (선택 시) */}
+          {selectedIds.length > 0 && (
+            <div className="h-9 px-2 bg-white border-b border-[#EBE5DA] flex items-center gap-1 overflow-x-auto shrink-0 text-[10px] font-semibold text-[#5C5046]">
+              <span className="text-[9px] font-bold text-[#A89A8E] shrink-0 mr-1">정렬</span>
+              {([
+                { mode: 'left' as const, label: '왼쪽' },
+                { mode: 'hcenter' as const, label: '가운데' },
+                { mode: 'right' as const, label: '오른쪽' },
+                { mode: 'top' as const, label: '위' },
+                { mode: 'vcenter' as const, label: '중간' },
+                { mode: 'bottom' as const, label: '아래' },
+              ]).map((item) => (
+                <button
+                  key={item.mode}
+                  onClick={() => alignSelected(item.mode)}
+                  className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0"
+                  title={`${item.label} 정렬`}
+                  data-testid={`align-${item.mode}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <div className="w-px h-4 bg-[#EBE5DA] mx-0.5 shrink-0" />
+              <button onClick={() => distributeSelected('h')} className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0" title="가로 간격 균등 분배" data-testid="distribute-h">
+                가로 분배
+              </button>
+              <button onClick={() => distributeSelected('v')} className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0" title="세로 간격 균등 분배" data-testid="distribute-v">
+                세로 분배
+              </button>
+              <div className="w-px h-4 bg-[#EBE5DA] mx-0.5 shrink-0" />
+              <button onClick={groupSelected} className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0" title="그룹으로 묶기 (Ctrl+G)" data-testid="group-selected">
+                그룹
+              </button>
+              <button onClick={ungroupSelected} className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0" title="그룹 해제 (Ctrl+Shift+G)">
+                그룹 해제
+              </button>
+              <span className="ml-auto text-[9px] text-[#A89A8E] shrink-0 pr-1">{selectedIds.length}개 선택</span>
+            </div>
+          )}
           <div
             ref={scrollAreaRef}
             className="flex-1 overflow-auto bg-[#EDE7DC] flex items-center justify-center p-6"
@@ -2158,7 +2563,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                     onMouseDown={(e) => beginElementDrag(e, el)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
-                      if (el.type === 'text' || el.type === 'badge') {
+                      if (!el.locked && el.type !== 'image' && el.type !== 'line' && el.type !== 'arrowLine') {
                         setSelectedIds([el.id]);
                         setEditingId(el.id);
                       }

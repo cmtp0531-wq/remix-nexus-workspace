@@ -22,14 +22,29 @@ import { GoogleChatSidebar } from './components/GoogleChatSidebar';
 import { GoogleChatMain } from './components/GoogleChatMain';
 import { ThreadPanel, SideBySideDocEditor, TasksPanel } from './components/RightPanels';
 import { 
-  GoogleMeetModal, 
   DrivePickerModal, 
   CalendarEventModal, 
   FriendManagementModal, 
-  CreateSpaceModal, 
+  CreateSpaceModal,
   UserProfileModal,
   SpaceSettingsModal
 } from './components/GoogleChatModals';
+import { MeetRoomModal } from './components/MeetRoomModal';
+import { ContactsModal } from './components/ContactsModal';
+import { InviteBell, InviteToasts } from './components/InviteCenter';
+import { Invite, subscribeInvites, createInvite, respondToInvite } from './services/inviteService';
+import { YouTubePlayerProvider } from './components/YouTubePlayerLayer';
+import { MeetingRoom, createNewMeetingRoom, joinMeetingRoom } from './services/meetingService';
+import {
+  Contact,
+  loadContacts,
+  upsertContact,
+  renameContact,
+  removeContact,
+  subscribeCloudContacts,
+  contactNameOf,
+  normalizeEmail,
+} from './services/contactsService';
 import { SearchModal } from './components/SearchModal';
 import { AuthView } from './components/AuthView';
 import { GoogleWorkspaceHubModal } from './components/GoogleWorkspaceHubModal';
@@ -68,12 +83,21 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { avatarSrc, handleAvatarError } from './components/UserAvatar';
 
 export default function App() {
+  return (
+    <YouTubePlayerProvider>
+      <WorkspaceApp />
+    </YouTubePlayerProvider>
+  );
+}
+
+function WorkspaceApp() {
   // 로그인 게이트 없이 바로 워크스페이스를 사용합니다.
   // - 저장된 로컬 사용자가 있으면 그 사용자로, 없으면 게스트(로컬) 사용자로 시작
   // - 설정에서 Firebase 를 연결하고 구글 로그인을 하면 그 계정으로 전환됩니다.
   const [currentUser, setCurrentUser] = useState<User | null>(() => storage.getCurrentUser());
   const [isGuest, setIsGuest] = useState<boolean>(() => !isGoogleSignedIn());
-  const [authReady, setAuthReady] = useState(false);
+  // 로그인 게이트를 기다리지 않습니다. 저장된 로컬 사용자(또는 게스트)로 즉시 화면을 렌더하고
+  // Firebase 세션 복원·Firestore 동기화는 백그라운드에서 이어집니다.
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [showGuestBanner, setShowGuestBanner] = useState<boolean>(() => {
@@ -83,6 +107,13 @@ export default function App() {
       return true;
     }
   });
+
+  // 게스트 안내 배너는 잠시 후 자동으로 사라져 대화 내용을 가리지 않게 합니다.
+  useEffect(() => {
+    if (!showGuestBanner) return;
+    const timer = window.setTimeout(() => setShowGuestBanner(false), 12000);
+    return () => window.clearTimeout(timer);
+  }, [showGuestBanner]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [firebaseReady, setFirebaseReady] = useState(() => isFirebaseConfigured());
   const [allUsers, setAllUsers] = useState<User[]>(() => storage.getUsers());
@@ -122,6 +153,13 @@ export default function App() {
 
   // Modals
   const [isMeetModalOpen, setIsMeetModalOpen] = useState(false);
+  const [meetingRoom, setMeetingRoom] = useState<MeetingRoom | null>(null);
+  const [isMeetingOpen, setIsMeetingOpen] = useState(false);
+  const [meetingBusy, setMeetingBusy] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>(() => loadContacts(storage.getCurrentUser()?.id || 'guest'));
+  const [isContactsOpen, setIsContactsOpen] = useState(false);
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [inviteToasts, setInviteToasts] = useState<Invite[]>([]);
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [isFriendModalOpen, setIsFriendModalOpen] = useState(false);
@@ -132,6 +170,14 @@ export default function App() {
   const [isWorkspaceHubOpen, setIsWorkspaceHubOpen] = useState(false);
   const [isGeminiPanelOpen, setIsGeminiPanelOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // 연락처: 계정이 바뀌면 그 계정의 연락처를 불러오고, 로그인 상태면 Firestore 와 동기화합니다.
+  useEffect(() => {
+    const ownerId = currentUser?.id || 'guest';
+    setContacts(loadContacts(ownerId));
+    if (!auth?.currentUser || auth.currentUser.uid !== ownerId) return;
+    return subscribeCloudContacts(ownerId, (next) => setContacts(next));
+  }, [currentUser?.id]);
 
   // /remind 명령: 브라우저 알림 리마인더 예약 (새로고침해도 유지)
   const [reminders, setReminders] = useState<Array<{ id: string; text: string; at: number }>>(() => {
@@ -193,45 +239,65 @@ export default function App() {
     return () => window.removeEventListener('resize', checkDevice);
   }, []);
 
-  // 팝업이 차단되어 리다이렉트로 진행된 로그인 결과를 복원합니다.
+  // 리다이렉트 로그인 결과 복원은 첫 화면이 그려진 뒤 백그라운드에서 처리합니다.
   useEffect(() => {
-    void completeRedirectSignIn();
+    const idle =
+      typeof (window as any).requestIdleCallback === 'function'
+        ? (window as any).requestIdleCallback(() => void completeRedirectSignIn(), { timeout: 2500 })
+        : window.setTimeout(() => void completeRedirectSignIn(), 900);
+    return () => {
+      if (typeof (window as any).cancelIdleCallback === 'function') (window as any).cancelIdleCallback(idle);
+      window.clearTimeout(idle);
+    };
+  }, []);
+
+  /** Firebase 사용자 → 앱 프로필 반영 (동기 작업만 수행해 즉시 반영) */
+  const applyFirebaseUser = React.useCallback((firebaseUser: FirebaseUser) => {
+    const existing = storage.getUsers().find((u) => u.id === firebaseUser.uid);
+    const user: User = {
+      id: firebaseUser.uid,
+      name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Google 사용자',
+      email: firebaseUser.email || '',
+      avatar: firebaseUser.photoURL || existing?.avatar || '',
+      status: 'online',
+      role: existing?.role || '팀원',
+      department: existing?.department || '협업팀',
+      googleConnected: true,
+    };
+    const users = storage.getUsers();
+    storage.saveUsers(users.some((u) => u.id === user.id) ? users.map((u) => (u.id === user.id ? { ...u, ...user } : u)) : [...users, user]);
+    storage.setCurrentUser(user);
+    setAllUsers(storage.getUsers());
+    setCurrentUser(user);
+    setIsGuest(false);
+    // Firestore 프로필 저장은 화면 렌더를 막지 않도록 백그라운드로 보냅니다.
+    void saveUserProfileToFirestore(user);
   }, []);
 
   // Firebase Authentication restores the real Google account on refresh.
-  // Firebase 미설정/비로그인 상태에서는 게스트(로컬) 사용자로 그대로 진입합니다.
+  // 저장된 세션이 있으면 onAuthStateChanged 첫 콜백을 기다리지 않고 즉시 복원합니다.
   useEffect(() => {
+    const cachedFirebaseUser = auth?.currentUser;
+    if (cachedFirebaseUser) {
+      applyFirebaseUser(cachedFirebaseUser);
+    } else if (!storage.getCurrentUser()) {
+      storage.setCurrentUser(DEFAULT_LOCAL_USER);
+      setCurrentUser(DEFAULT_LOCAL_USER);
+      setIsGuest(true);
+    }
+
     const unsubscribe = observeFirebaseAuth((firebaseUser: FirebaseUser | null) => {
       if (!firebaseUser) {
         const local = storage.getCurrentUser() || DEFAULT_LOCAL_USER;
         if (!storage.getCurrentUser()) storage.setCurrentUser(local);
         setCurrentUser((prev) => prev ?? local);
         setIsGuest(true);
-        setAuthReady(true);
         return;
       }
-      const existing = storage.getUsers().find((u) => u.id === firebaseUser.uid);
-      const user: User = {
-        id: firebaseUser.uid,
-        name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Google 사용자',
-        email: firebaseUser.email || '',
-        avatar: firebaseUser.photoURL || existing?.avatar || '',
-        status: 'online',
-        role: existing?.role || '팀원',
-        department: existing?.department || '협업팀',
-        googleConnected: true,
-      };
-      const users = storage.getUsers();
-      storage.saveUsers(users.some((u) => u.id === user.id) ? users.map((u) => u.id === user.id ? { ...u, ...user } : u) : [...users, user]);
-      storage.setCurrentUser(user);
-      setAllUsers(storage.getUsers());
-      setCurrentUser(user);
-      setIsGuest(false);
-      setAuthReady(true);
-      void saveUserProfileToFirestore(user);
+      applyFirebaseUser(firebaseUser);
     });
     return unsubscribe;
-  }, []);
+  }, [applyFirebaseUser]);
 
   // 설정(Firebase/Gemini 키) 변경을 감지합니다.
   useEffect(() => onSettingsChanged(() => {
@@ -278,8 +344,9 @@ export default function App() {
     setAuthError('');
     setAuthLoading(true);
     try {
-      await signInWithGoogleAccount();
-      // onAuthStateChanged above creates the local profile.
+      const firebaseUser = await signInWithGoogleAccount();
+      // 인증이 끝난 즉시 프로필을 반영해 워크스페이스로 바로 진입합니다.
+      if (firebaseUser) applyFirebaseUser(firebaseUser);
     } catch (error: any) {
       console.error('Google sign-in failed:', error);
       const code = String(error?.code || '') || getLastAuthErrorCode();
@@ -446,10 +513,10 @@ export default function App() {
     }
   }, [spaces, activeSpaceId]);
 
-  // 시작 시 잠깐 보여주는 로딩 화면 (로그인 게이트가 아닙니다)
-  if (!authReady || !currentUser) {
+  // 시작 화면: 저장된 사용자로 즉시 진입하므로 로딩 대기가 없습니다.
+  if (!currentUser) {
     return (
-      <div className="h-[100vh] w-full flex flex-col items-center justify-center gap-3 bg-[#FDFBF7] text-[#2C2520]">
+      <div className="h-[100dvh] w-full flex flex-col items-center justify-center gap-3 bg-[#FDFBF7] text-[#2C2520]">
         <div className="flex items-end gap-1.5 h-8">
           <span className="w-2 h-4 rounded-full bg-[#8D5B4C] animate-bounce" />
           <span className="w-2 h-7 rounded-full bg-[#3E2723] animate-bounce [animation-delay:120ms]" />
@@ -664,18 +731,187 @@ export default function App() {
     setMessagesMap(nextMap);
   };
 
-  // GOOGLE MEET SHARING
-  const handleShareMeetToChat = (meetingTitle: string, meetLink: string, code: string) => {
-    handleSendMessage(`Google Meet 화상 회의가 생성되었습니다: **${meetingTitle}**`, [
+  // GOOGLE MEET / HUDDLE — 회의 링크를 현재 채팅방에 자동 전송
+  const postMeetingCard = (room: MeetingRoom) => {
+    handleSendMessage(`🎥 새 회의가 시작되었습니다: **${room.title}**\n같은 회의에 참여하려면 아래 카드를 눌러 주세요.`, [
       {
         type: 'meet',
-        meetingTitle,
-        meetLink,
-        meetCode: code,
+        meetingTitle: room.title,
+        meetLink: room.link,
+        meetCode: room.code,
         hostName: currentUser.name,
         activeParticipantsCount: 1,
       },
     ]);
+  };
+
+  const handleShareMeetToChat = (meetingTitle: string, meetLink: string, code: string) => {
+    const room = meetingRoom && meetingRoom.link === meetLink
+      ? meetingRoom
+      : joinMeetingRoom(meetLink, meetingTitle, code);
+    postMeetingCard(room);
+  };
+
+  /** 새 회의 시작: 매번 고유한 새 회의를 만들고, 링크를 채팅방에 자동으로 올립니다. */
+  const handleStartMeeting = async (title?: string) => {
+    if (meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      const room = await createNewMeetingRoom(title || `${activeSpace.name} 회의`, activeSpace.id);
+      const updated = spaces.map((s) =>
+        s.id === activeSpace.id
+          ? {
+              ...s,
+              activeMeetLink: room.link,
+              activeMeetCode: room.code,
+              activeMeetTitle: room.title,
+              activeMeetProvider: room.provider,
+              activeMeetStartedAt: room.createdAt,
+              isHuddleActive: true,
+            }
+          : s
+      );
+      storage.saveSpaces(updated);
+      setSpaces(updated);
+      setMeetingRoom(room);
+      setIsMeetingOpen(true);
+      // 생성 즉시 채팅방 메시지(참여 카드)로 자동 전송
+      postMeetingCard(room);
+      // 같은 스페이스 멤버에게 회의 초대 알림 전송
+      allUsers
+        .filter((member) => member.id !== currentUser.id && activeSpace.memberIds.includes(member.id))
+        .forEach((member) => {
+          createInvite({
+            type: 'meeting',
+            toUserId: member.id,
+            toEmail: member.email,
+            fromUserId: currentUser.id,
+            fromUserName: currentUser.name,
+            fromUserAvatar: currentUser.avatar,
+            spaceId: activeSpace.id,
+            spaceName: activeSpace.name,
+            meetLink: room.link,
+            meetTitle: room.title,
+            message: '회의가 시작되었습니다. 같은 링크로 입장하세요.',
+          });
+        });
+      notificationService.notify({
+        title: '🎥 회의가 시작되었습니다',
+        body: `${room.title} · 회의 링크가 #${activeSpace.name} 채팅방에 올라갔습니다.`,
+      });
+    } finally {
+      setMeetingBusy(false);
+    }
+  };
+
+  /** 이미 올라온 회의 링크로 같은 회의실에 입장 */
+  const handleJoinMeeting = (link: string, title?: string, code?: string) => {
+    if (!link) return;
+    const room = joinMeetingRoom(link, title, code);
+    setMeetingRoom(room);
+    setIsMeetingOpen(true);
+  };
+
+  /** 허들: 진행 중인 방이 있으면 그 방으로, 없으면 새 회의를 만들어 링크를 올립니다. */
+  const handleHuddleClick = () => {
+    if (activeSpace.activeMeetLink) {
+      handleJoinMeeting(activeSpace.activeMeetLink, activeSpace.activeMeetTitle, activeSpace.activeMeetCode);
+    } else {
+      void handleStartMeeting(`${activeSpace.name} 허들`);
+    }
+  };
+
+  const handleEndMeeting = () => {
+    setIsMeetingOpen(false);
+    setMeetingRoom(null);
+    const updated = spaces.map((s) =>
+      s.id === activeSpace.id
+        ? {
+            ...s,
+            activeMeetLink: undefined,
+            activeMeetCode: undefined,
+            activeMeetTitle: undefined,
+            activeMeetProvider: undefined,
+            activeMeetStartedAt: undefined,
+            isHuddleActive: false,
+          }
+        : s
+    );
+    storage.saveSpaces(updated);
+    setSpaces(updated);
+  };
+
+  // 초대 수신: 인앱 토스트 + 알림 센터 + (권한 시) 브라우저 알림
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubscribe = subscribeInvites(
+      currentUser.id,
+      (list) => setInvites(list),
+      (invite) => {
+        setInviteToasts((prev) => (prev.some((item) => item.id === invite.id) ? prev : [invite, ...prev].slice(0, 3)));
+        const label =
+          invite.type === 'meeting' ? '회의 초대' : invite.type === 'space' ? '스페이스 초대' : invite.type === 'dm' ? '1:1 대화 초대' : '연락처 초대';
+        notificationService.notify({
+          title: `📨 ${label}`,
+          body: `${invite.fromUserName}님이 초대했습니다${invite.spaceName ? ` · #${invite.spaceName}` : ''}`,
+        });
+        window.setTimeout(() => {
+          setInviteToasts((prev) => prev.filter((item) => item.id !== invite.id));
+        }, 15000);
+      }
+    );
+    return unsubscribe;
+  }, [currentUser?.id]);
+
+  const handleAcceptInvite = (invite: Invite) => {
+    respondToInvite(invite.id, 'accepted');
+    setInviteToasts((prev) => prev.filter((item) => item.id !== invite.id));
+    if (invite.type === 'meeting' && invite.meetLink) {
+      handleJoinMeeting(invite.meetLink, invite.meetTitle || invite.spaceName, invite.meetLink.split('/').pop());
+      return;
+    }
+    if (invite.spaceId) {
+      const updated = spaces.map((s) =>
+        s.id === invite.spaceId && !s.memberIds.includes(currentUser.id)
+          ? { ...s, memberIds: [...s.memberIds, currentUser.id] }
+          : s
+      );
+      storage.saveSpaces(updated);
+      setSpaces(updated);
+      setActiveSpaceId(invite.spaceId);
+      setFocusMode('chat');
+      return;
+    }
+    notificationService.notify({ title: '초대 수락', body: '초대를 수락했습니다.' });
+  };
+
+  const handleDeclineInvite = (invite: Invite) => {
+    respondToInvite(invite.id, 'declined');
+    setInviteToasts((prev) => prev.filter((item) => item.id !== invite.id));
+    setInvites((prev) => prev.filter((item) => item.id !== invite.id));
+  };
+
+  // CONTACTS — 이름을 원하는 대로 저장 (중복 등록 방지)
+  const handleAddContact = (input: { displayName: string; email?: string; userId?: string; note?: string }) => {
+    const ownerId = currentUser.id || 'guest';
+    const result = upsertContact(ownerId, input);
+    setContacts(loadContacts(ownerId));
+    return {
+      ok: Boolean(result.contact),
+      message: result.reason || `${result.contact?.displayName} 님을 연락처에 저장했습니다.`,
+    };
+  };
+
+  const handleRenameContact = (contactId: string, displayName: string) => {
+    const ownerId = currentUser.id || 'guest';
+    renameContact(ownerId, contactId, displayName);
+    setContacts(loadContacts(ownerId));
+  };
+
+  const handleRemoveContact = (contactId: string) => {
+    const ownerId = currentUser.id || 'guest';
+    removeContact(ownerId, contactId);
+    setContacts(loadContacts(ownerId));
   };
 
   // GOOGLE DRIVE SHARING (자동 권한 부여 연동)
@@ -1061,6 +1297,25 @@ export default function App() {
     storage.saveSpaces(nextSpaces);
     setSpaces(nextSpaces);
 
+    // 초대받은 멤버에게 즉시 초대 알림 전송
+    memberIds
+      .filter((id) => id !== currentUser.id)
+      .forEach((id) => {
+        const member = allUsers.find((u) => u.id === id);
+        if (!member) return;
+        createInvite({
+          type: 'space',
+          toUserId: member.id,
+          toEmail: member.email,
+          fromUserId: currentUser.id,
+          fromUserName: currentUser.name,
+          fromUserAvatar: currentUser.avatar,
+          spaceId,
+          spaceName: name,
+          message: `#${name} 스페이스에 초대했습니다.`,
+        });
+      });
+
     const welcomeMsg: Message = {
       id: `msg_${Date.now()}`,
       spaceId,
@@ -1409,13 +1664,11 @@ export default function App() {
       onToggleReaction={handleToggleReaction}
       onToggleStarSpace={handleToggleStarSpace}
       onToggleStarMessage={handleToggleStarMessage}
-      onOpenMeetModal={() => setIsMeetModalOpen(true)}
+      onOpenMeetModal={() => void handleStartMeeting()}
       onOpenCalendarModal={() => setIsCalendarModalOpen(true)}
       onOpenDrivePicker={() => setIsDrivePickerOpen(true)}
       onOpenDocEditor={handleOpenDocEditor}
-      onOpenMeetRoom={(link, title) => {
-        setIsMeetModalOpen(true);
-      }}
+      onOpenMeetRoom={(link, title) => handleJoinMeeting(link, title)}
       onRsvpCalendar={handleRsvpCalendar}
       onOpenSpaceSettings={() => setIsSpaceSettingsOpen(true)}
       onToggleRightPanel={handleToggleRightPanel}
@@ -1440,6 +1693,12 @@ export default function App() {
       onOpenYouTubeView={handleOpenYouTubeSplit}
       onCreateTask={handleCreateTaskFromChat}
       onCreateReminder={handleCreateReminder}
+      contacts={contacts}
+      onOpenContacts={() => setIsContactsOpen(true)}
+      onOpenHuddle={handleHuddleClick}
+      invites={invites}
+      onAcceptInvite={handleAcceptInvite}
+      onDeclineInvite={handleDeclineInvite}
     />
   );
 
@@ -1465,6 +1724,7 @@ export default function App() {
             setActiveDocEditor(null);
             setActiveTab('chat');
             setFocusMode('chat');
+            setIsSidebarCollapsed(false);
           }}
           onShareToChat={(content) => handleSendMessage(content)}
         />
@@ -1564,7 +1824,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-[100vh] w-full max-w-full overflow-hidden bg-[#FDFBF7] text-[#2C2520] font-sans antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] relative">
+    <div className="flex h-[100dvh] w-full max-w-full overflow-hidden bg-[#FDFBF7] text-[#2C2520] font-sans antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] relative">
       {/* Real Floating Notification Toasts (Works on Tablet, Phone, Laptop) */}
       <div className="fixed top-3 right-3 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
         {inAppNotifs.map((notif) => (
@@ -1587,8 +1847,16 @@ export default function App() {
         ))}
       </div>
 
+      {/* 초대 도착 알림 (인앱 토스트) */}
+      <InviteToasts
+        invites={inviteToasts}
+        onAccept={handleAcceptInvite}
+        onDecline={handleDeclineInvite}
+        onDismiss={(invite) => setInviteToasts((prev) => prev.filter((item) => item.id !== invite.id))}
+      />
+
       {/* Google 로그인 오류 / 게스트 안내 배너 (화면 상단 고정) */}
-      <div className="fixed top-0 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pt-2 pointer-events-none">
+      <div className="fixed top-[60px] left-0 right-0 z-[60] flex flex-col items-end gap-2 px-2 pt-1 pointer-events-none">
         {authError && (
           <div className="pointer-events-auto w-full max-w-2xl px-4 py-2.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold flex items-start gap-2 shadow-lg animate-in slide-in-from-top-2">
             <span className="flex-1 leading-relaxed">{authError}</span>
@@ -1638,7 +1906,7 @@ export default function App() {
       <div
         className={`${
           isMobileSidebarOpen
-            ? 'absolute inset-y-0 left-0 z-40 flex shadow-2xl animate-in slide-in-from-left duration-200'
+            ? 'fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] shadow-2xl animate-in slide-in-from-left duration-200 md:static md:w-auto md:max-w-none'
             : isSidebarCollapsed
             ? 'hidden'
             : 'hidden md:flex'
@@ -1671,6 +1939,8 @@ export default function App() {
           onGoogleSignIn={handleGoogleSignIn}
           authLoading={authLoading}
           onToggleCollapse={() => setIsSidebarCollapsed(true)}
+          contacts={contacts}
+          onOpenContacts={() => setIsContactsOpen(true)}
         />
       </div>
 
@@ -1701,6 +1971,37 @@ export default function App() {
           )}
 
           <div className="flex-1 min-h-0 overflow-hidden">
+            {/* 진행 중인 회의 배너: 같은 채팅방 사람들이 같은 회의로 입장 */}
+            {activeSpace.activeMeetLink && (
+              <div className="px-3 py-1.5 bg-[#14532D] text-white flex items-center gap-2 text-[11px] shrink-0">
+                <span className="w-2 h-2 rounded-full bg-[#4ADE80] animate-pulse shrink-0" />
+                <span className="font-bold truncate">
+                  회의 진행 중 · {activeSpace.activeMeetTitle || '회의'}
+                </span>
+                <span className="hidden sm:inline text-white/60 truncate flex-1">
+                  {activeSpace.activeMeetProvider === 'google' ? 'Google Meet' : '즉시 회의실'} · 모두 같은 링크로 입장합니다
+                </span>
+                <button
+                  onClick={() => handleJoinMeeting(activeSpace.activeMeetLink!, activeSpace.activeMeetTitle, activeSpace.activeMeetCode)}
+                  className="ml-auto px-2.5 py-1 rounded-lg bg-[#22C55E] hover:bg-[#16A34A] text-[10.5px] font-bold shrink-0"
+                >
+                  회의 참여
+                </button>
+                <button
+                  onClick={() => void handleStartMeeting()}
+                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[10.5px] font-semibold shrink-0"
+                  title="완전히 새로운 회의를 만듭니다"
+                >
+                  새 회의
+                </button>
+                <button
+                  onClick={handleEndMeeting}
+                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10.5px] font-semibold shrink-0"
+                >
+                  종료
+                </button>
+              </div>
+            )}
             {renderChatMain()}
           </div>
         </main>
@@ -1921,6 +2222,7 @@ export default function App() {
                     setActiveDocEditor(null);
                     setActiveTab('chat');
                     setFocusMode('chat');
+                    setIsSidebarCollapsed(false);
                   }}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-red-50 border border-[#EBE5DA] hover:border-red-200 text-xs font-semibold text-[#7A6A5C] hover:text-red-600 transition-all cursor-pointer shadow-2xs"
                   title="작업실을 닫고 대화창으로 돌아갑니다"
@@ -2022,15 +2324,42 @@ export default function App() {
       )}
 
       {/* 4. Modals */}
-      <GoogleMeetModal
-        isOpen={isMeetModalOpen}
-        onClose={() => setIsMeetModalOpen(false)}
+      <MeetRoomModal
+        isOpen={isMeetingOpen}
+        onClose={() => setIsMeetingOpen(false)}
+        room={meetingRoom}
+        spaceName={activeSpace.name}
+        members={activeSpaceMembers}
         currentUser={currentUser}
-        spaceMembers={activeSpaceMembers}
-        allUsers={allUsers}
-        onShareToChat={handleShareMeetToChat}
+        onStartNewMeeting={() => handleStartMeeting()}
+        onShareToChat={(room) => postMeetingCard(room)}
+        onCreateRoomForSpace={async () => null}
       />
 
+      <ContactsModal
+        isOpen={isContactsOpen}
+        onClose={() => setIsContactsOpen(false)}
+        contacts={contacts}
+        onAdd={handleAddContact}
+        onRename={handleRenameContact}
+        onRemove={handleRemoveContact}
+        currentUserId={currentUser.id}
+        onStartDm={(contact) => {
+          const target = allUsers.find(
+            (u) => (contact.userId && u.id === contact.userId) || (contact.email && normalizeEmail(u.email) === normalizeEmail(contact.email))
+          );
+          if (target) {
+            handleStartDmWithFriend(target);
+            setIsContactsOpen(false);
+            setFocusMode('chat');
+          } else {
+            notificationService.notify({
+              title: '연락처',
+              body: '이 연락처는 아직 워크스페이스에 참여하지 않아 1:1 대화를 열 수 없습니다.',
+            });
+          }
+        }}
+      />
       <DrivePickerModal
         isOpen={isDrivePickerOpen}
         onClose={() => setIsDrivePickerOpen(false)}

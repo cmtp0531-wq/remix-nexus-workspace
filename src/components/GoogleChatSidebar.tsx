@@ -23,6 +23,7 @@ import {
 import { Space, User } from '../types';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
 import { isWorkspaceConnected } from '../services/googleWorkspace';
+import { Contact, contactNameOf } from '../services/contactsService';
 
 interface GoogleChatSidebarProps {
   currentUser: User;
@@ -45,6 +46,8 @@ interface GoogleChatSidebarProps {
   onToggleCollapse?: () => void;
   onGoogleSignIn?: () => void;
   authLoading?: boolean;
+  contacts?: Contact[];
+  onOpenContacts?: () => void;
 }
 
 export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
@@ -68,6 +71,8 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
   onToggleCollapse,
   onGoogleSignIn,
   authLoading = false,
+  contacts = [],
+  onOpenContacts,
 }) => {
   const [spacesCollapsed, setSpacesCollapsed] = useState(false);
   const [dmsCollapsed, setDmsCollapsed] = useState(false);
@@ -102,7 +107,6 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
     if (!dm.dmWithUserId) return null;
     return allUsers.find((u) => u.id === dm.dmWithUserId);
   };
-
   return (
     <aside className="w-72 flex-shrink-0 bg-[#F4EFE6] border-r border-[#EBE5DA] flex flex-col justify-between select-none">
       <div>
@@ -184,6 +188,24 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
             </span>
           </button>
         </div>
+
+        {/* 연락처 (이름 직접 지정) */}
+        {onOpenContacts && (
+          <div className="px-3 pb-2">
+            <button
+              onClick={onOpenContacts}
+              className="w-full flex items-center justify-between p-2 rounded-xl bg-[#FDFBF7] hover:bg-[#FFFFFF] border border-[#EBE5DA] transition-all text-xs font-semibold text-[#5C5046]"
+            >
+              <div className="flex items-center gap-2">
+                <Users className="w-3.5 h-3.5 text-[#C18C5D]" />
+                <span>내 연락처</span>
+              </div>
+              <span className="text-[10px] text-[#A89A8E] font-normal">
+                {contacts.length > 0 ? `${contacts.length}명 · 이름 변경` : '이름 저장'}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Friend Request Alert Pill */}
         <div className="px-3 pb-2">
@@ -370,7 +392,9 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
                               />
                             )}
                           </div>
-                          <span className="truncate">{dm.name}</span>
+                          <span className="truncate">
+                            {contactNameOf(contacts, friend?.id || dm.dmWithUserId, friend?.email, dm.name)}
+                          </span>
                         </div>
 
                         {friend?.customStatus?.emoji && (

@@ -2,21 +2,51 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>워크챗 (WorkChat) - 카페 베이지 협업 메신저</title>
-    <meta name="description" content="구글 워크스페이스 완전 연동과 제미나이 AI가 탑재된 차세대 협업 메신저 워크챗(WorkChat)." />
-    <meta property="og:title" content="워크챗 (WorkChat) - 카페 베이지 협업 메신저" />
-    <meta property="og:description" content="구글 워크스페이스 완전 연동과 제미나이 AI가 탑재된 차세대 협업 메신저 워크챗(WorkChat)." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Remix Nexus Workspace</title>
+    <meta name="description" content="구글 워크스페이스 완전 연동과 제미나이 AI가 탑재된 협업 워크스페이스 Remix Nexus." />
+    <meta property="og:title" content="Remix Nexus Workspace" />
+    <meta property="og:description" content="구글 워크스페이스 완전 연동과 제미나이 AI가 탑재된 협업 워크스페이스 Remix Nexus." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#3E2723" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Remix Nexus" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233E2723'/%3E%3Cpath d='M9 22V10h8a4 4 0 0 1 0 8H9' stroke='%23FDFBF7' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="dns-prefetch" href="https://www.googleapis.com">
+    <link rel="dns-prefetch" href="https://translate.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      /* 첫 페인트 즉시 표시 (React 마운트 전 스플래시) */
+      html, body { margin: 0; padding: 0; background: #FDFBF7; }
+      #boot-splash {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: #FDFBF7; color: #2C2520; font-family: 'Noto Sans KR', system-ui, sans-serif;
+      }
+      #boot-splash .dots { display: flex; align-items: flex-end; gap: 6px; height: 28px; }
+      #boot-splash .dots span { width: 8px; border-radius: 999px; background: #3E2723; animation: bootBounce 1s infinite ease-in-out; }
+      #boot-splash .dots span:nth-child(1) { height: 16px; background: #8D5B4C; }
+      #boot-splash .dots span:nth-child(2) { height: 26px; animation-delay: .12s; }
+      #boot-splash .dots span:nth-child(3) { height: 20px; background: #C18C5D; animation-delay: .24s; }
+      @keyframes bootBounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+    </style>
   </head>
   <body class="bg-[#FDFBF7] text-[#2C2520] antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] m-0 p-0 min-h-screen overflow-x-hidden">
-    <div id="root" class="min-h-screen flex flex-col"></div>
+    <div id="root" class="min-h-screen flex flex-col">
+      <div id="boot-splash">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <p style="font-size:12px;color:#7A6A5C;margin:0">워크스페이스를 여는 중…</p>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

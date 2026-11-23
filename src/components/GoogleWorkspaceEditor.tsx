@@ -177,22 +177,7 @@ const DocsEditor: React.FC<GoogleWorkspaceEditorProps> = ({
       }
       data.push(row);
     }
-    // Preset helpful header in first row
-    data[0][0] = '구분';
-    data[0][1] = '항목명';
-    data[0][2] = '단가';
-    data[0][3] = '수량';
-    data[0][4] = '합계 (=C*D)';
-    data[1][0] = '기획';
-    data[1][1] = '디자인 시안';
-    data[1][2] = '50000';
-    data[1][3] = '3';
-    data[1][4] = '=C2*D2';
-    data[2][0] = '개발';
-    data[2][1] = '시스템 구축';
-    data[2][2] = '120000';
-    data[2][3] = '2';
-    data[2][4] = '=C3*D3';
+    // 예시 데이터 없이 빈 그리드로 시작합니다.
     return data;
   };
 
@@ -2033,24 +2018,7 @@ const DocsEditor: React.FC<GoogleWorkspaceEditorProps> = ({
               />
             </div>
             <div className="space-y-1.5">
-              <span className="text-[11px] font-semibold text-[#7A6A5C]">추천 비즈니스 스톡 이미지:</span>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { name: '오피스', url: sampleImage('오피스', 32) },
-                  { name: '데이터 차트', url: sampleImage('데이터 차트', 210) },
-                  { name: '팀 회의', url: sampleImage('팀 회의', 150) }
-                ].map((sample, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setImageUrlInput(sample.url)}
-                    className="p-1 rounded-lg border border-[#EBE5DA] hover:border-[#1A73E8] overflow-hidden text-center cursor-pointer"
-                  >
-                    <img src={sample.url} alt={sample.name} className="w-full h-12 object-cover rounded" />
-                    <span className="text-[10px] text-[#5C5046] font-medium">{sample.name}</span>
-                  </button>
-                ))}
-              </div>
+              <span className="text-[11px] font-semibold text-[#7A6A5C]">이미지 주소를 입력하거나 파일을 업로드하세요.</span>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-[#EBE5DA]">
               <button

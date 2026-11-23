@@ -38,6 +38,12 @@ export interface Space {
   isHuddleActive?: boolean;
   huddleMembers?: string[];
   canvasContent?: string;
+  /** 이 채팅방에서 마지막으로 시작된 회의 (모두 같은 회의로 입장) */
+  activeMeetLink?: string;
+  activeMeetCode?: string;
+  activeMeetTitle?: string;
+  activeMeetProvider?: 'google' | 'instant';
+  activeMeetStartedAt?: string;
 }
 
 export interface Reaction {
