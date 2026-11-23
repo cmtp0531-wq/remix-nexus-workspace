@@ -2373,8 +2373,8 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             </div>
 
             {/* Bottom Toolbar inside input */}
-            <div className="px-3 py-2 flex items-center justify-between border-t border-[#F4EFE6]">
-              <div className="flex items-center gap-1 text-[#7A6A5C]">
+            <div className="px-2 sm:px-3 py-2 flex items-center justify-between gap-1.5 border-t border-[#F4EFE6]">
+              <div className="flex items-center gap-0.5 sm:gap-1 text-[#7A6A5C] flex-1 min-w-0 overflow-x-auto scrollbar-none">
                 <button
                   type="button"
                   onClick={() => setShowFormatBar(!showFormatBar)}
@@ -2507,7 +2507,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
 
                 {/* Send Button */}
                 <button
