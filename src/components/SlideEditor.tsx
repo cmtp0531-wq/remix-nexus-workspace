@@ -1828,10 +1828,10 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
       <input type="file" ref={replaceImageInputRef} accept="image/*" className="hidden" onChange={handleReplaceImage} />
 
       {/* HEADER */}
-      <header className="h-14 bg-white border-b border-[#EBE5DA] px-3 sm:px-4 flex items-center justify-between shrink-0 shadow-2xs z-30">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white shadow-xs shrink-0 bg-[#F4B400]">
-            <Presentation className="w-5 h-5" />
+      <header className="h-12 sm:h-14 bg-white border-b border-[#EBE5DA] px-2 sm:px-4 flex items-center justify-between shrink-0 shadow-2xs z-30">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-white shadow-xs shrink-0 bg-[#F4B400]">
+            <Presentation className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0 flex flex-col justify-center">
             <input
@@ -1846,8 +1846,8 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
               className="text-xs sm:text-sm font-bold text-[#2C2520] bg-transparent hover:bg-[#F4EFE6] px-1.5 py-0.5 rounded-lg border border-transparent hover:border-[#EBE5DA] focus:border-[#F4B400] focus:bg-white focus:outline-none truncate max-w-[150px] sm:max-w-xs"
             />
             <div className="flex items-center gap-2 text-[10px] text-[#7A6A5C] px-1.5">
-              <span className="font-semibold">Canva 스타일 스튜디오</span>
-              <span>•</span>
+              <span className="font-semibold hidden sm:inline">Canva 스타일 스튜디오</span>
+              <span className="hidden sm:inline">•</span>
               <span
                 className={`flex items-center gap-1 font-bold ${
                   saveStatus === 'saved' ? 'text-[#0F9D58]' : saveStatus === 'saving' ? 'text-[#E67E22]' : 'text-[#EA4335]'

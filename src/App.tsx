@@ -2142,8 +2142,8 @@ function WorkspaceApp() {
         <main className="flex-1 flex h-full overflow-hidden min-w-0">
           {/* Main Full-Width Work Area */}
           <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-[#FDFBF7]">
-            {/* Top Work Controls */}
-            <header className="h-12 px-4 bg-[#F4EFE6]/70 border-b border-[#EBE5DA] flex items-center justify-between shrink-0 select-none">
+            {/* Top Work Controls (모바일에서는 각 화면의 자체 헤더를 사용) */}
+            <header className="hidden sm:flex h-12 px-4 bg-[#F4EFE6]/70 border-b border-[#EBE5DA] items-center justify-between shrink-0 select-none">
               <div className="flex items-center gap-1.5 overflow-x-auto py-1">
                 <button
                   onClick={() => {

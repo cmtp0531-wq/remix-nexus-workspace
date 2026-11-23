@@ -167,6 +167,18 @@ export const YouTubePlayerProvider: React.FC<ProviderProps> = ({ children, onExp
     };
   }, [hasSlot]);
 
+  // 슬롯이 사라졌으면(화면 전환) 미니 플레이어로 전환합니다.
+  useEffect(() => {
+    if (!hasSlot) return;
+    const id = window.setInterval(() => {
+      if (!slotRef.current || !slotRef.current.isConnected) {
+        setHasSlot(false);
+        setSlotRect(null);
+      }
+    }, 700);
+    return () => window.clearInterval(id);
+  }, [hasSlot]);
+
   // 재생 위치 추정 (진행 바/잠금화면 seek 용)
   useEffect(() => {
     if (!playing || !track) return;
