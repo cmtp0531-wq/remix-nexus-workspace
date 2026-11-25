@@ -35,6 +35,9 @@ const REQUESTS_KEY = 'gchat_real_requests_v6';
 const FRIENDSHIPS_KEY = 'gchat_real_friendships_v6';
 const DRIVE_DOCS_KEY = 'gchat_real_drive_docs_v6';
 const CALENDAR_EVENTS_KEY = 'gchat_real_calendar_events_v6';
+const THEME_KEY = 'nexus_theme_v1';
+const BUBBLE_COLORS_KEY = 'nexus_bubble_colors_v1';
+const HIDDEN_MESSAGES_KEY = 'nexus_hidden_messages_v1';
 
 // Completely empty: No fake mock docs! Real Google Drive files are loaded via Google API.
 const INITIAL_DRIVE_DOCS: DriveDocument[] = [];
@@ -216,6 +219,67 @@ export const storage = {
       return next;
     } catch {
       return [];
+    }
+  },
+
+  /** 나에게만 메시지를 가리기(상대 메시지 숨김) — 사용자별 목록으로 저장 */
+  getHiddenMessageIds: (userId: string): string[] => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_MESSAGES_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      const list = map?.[userId];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  },
+  hideMessageForUser: (userId: string, messageId: string) => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_MESSAGES_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      const list: string[] = Array.isArray(map[userId]) ? map[userId] : [];
+      if (!list.includes(messageId)) list.push(messageId);
+      map[userId] = list;
+      localStorage.setItem(HIDDEN_MESSAGES_KEY, JSON.stringify(map));
+      broadcastSync('MESSAGES_UPDATED');
+    } catch {
+      /* 저장 실패 시 세션 내 상태만 반영 */
+    }
+  },
+  getTheme: (): string => {
+    try {
+      return localStorage.getItem(THEME_KEY) || 'cream';
+    } catch {
+      return 'cream';
+    }
+  },
+  saveTheme: (theme: string) => {
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* ignore */
+    }
+  },
+  getBubbleColors: (): { mine: string; other: string; mineText?: string; otherText?: string } => {
+    try {
+      const raw = localStorage.getItem(BUBBLE_COLORS_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return {
+        mine: parsed?.mine || '#1A73E8',
+        other: parsed?.other || '#FFFFFF',
+        mineText: parsed?.mineText,
+        otherText: parsed?.otherText,
+      };
+    } catch {
+      return { mine: '#1A73E8', other: '#FFFFFF' };
+    }
+  },
+  saveBubbleColors: (colors: { mine: string; other: string; mineText?: string; otherText?: string }) => {
+    try {
+      localStorage.setItem(BUBBLE_COLORS_KEY, JSON.stringify(colors));
+      broadcastSync('MESSAGES_UPDATED');
+    } catch {
+      /* ignore */
     }
   },
 

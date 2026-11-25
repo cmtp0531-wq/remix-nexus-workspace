@@ -193,3 +193,190 @@
     margin: 6mm;
   }
 }
+
+/* ============================================================
+   Nexus 테마 시스템 (html[data-theme])
+   - 기본(cream) 값은 기존 색과 동일해 테마 변경 없이도 모습이 같습니다.
+   ============================================================ */
+:root {
+  --nx-bg: #FDFBF7;
+  --nx-surface: #FFFFFF;
+  --nx-surface-2: #F4EFE6;
+  --nx-surface-3: #FAF7F2;
+  --nx-border: #EBE5DA;
+  --nx-text: #2C2520;
+  --nx-text-strong: #3E2723;
+  --nx-text-muted: #7A6A5C;
+  --nx-accent: #C18C5D;
+  --nx-shadow: 0 10px 30px -12px rgba(62, 39, 35, 0.18);
+}
+
+[data-theme="light"] {
+  --nx-bg: #FFFFFF; --nx-surface: #FFFFFF; --nx-surface-2: #F5F5F7; --nx-surface-3: #FAFAFC;
+  --nx-border: #E5E5EA; --nx-text: #1D1D1F; --nx-text-strong: #000000; --nx-text-muted: #6E6E73; --nx-accent: #0071E3;
+}
+[data-theme="dark"] {
+  --nx-bg: #0E0F12; --nx-surface: #181A1F; --nx-surface-2: #22252C; --nx-surface-3: #1C1F25;
+  --nx-border: #2E323A; --nx-text: #F2F3F5; --nx-text-strong: #FFFFFF; --nx-text-muted: #A0A6B1; --nx-accent: #4F8CFF;
+  color-scheme: dark;
+}
+[data-theme="midnight"] {
+  --nx-bg: #0B132B; --nx-surface: #13203C; --nx-surface-2: #1B2A4A; --nx-surface-3: #101B33;
+  --nx-border: #24345A; --nx-text: #E8EEFB; --nx-text-strong: #FFFFFF; --nx-text-muted: #9AAAC9; --nx-accent: #5B8DEF;
+  color-scheme: dark;
+}
+[data-theme="forest"] {
+  --nx-bg: #0C1A14; --nx-surface: #14291F; --nx-surface-2: #1B3527; --nx-surface-3: #102219;
+  --nx-border: #24402F; --nx-text: #E9F7EF; --nx-text-strong: #FFFFFF; --nx-text-muted: #9CBBA8; --nx-accent: #3FBF7F;
+  color-scheme: dark;
+}
+[data-theme="lavender"] {
+  --nx-bg: #F7F4FF; --nx-surface: #FFFFFF; --nx-surface-2: #EDE7FF; --nx-surface-3: #F3EFFF;
+  --nx-border: #DED4F7; --nx-text: #221A36; --nx-text-strong: #170F2B; --nx-text-muted: #756A93; --nx-accent: #7C5CFF;
+}
+[data-theme="sunset"] {
+  --nx-bg: #FFF6F0; --nx-surface: #FFFFFF; --nx-surface-2: #FFE7D8; --nx-surface-3: #FFEFE6;
+  --nx-border: #F6D8C6; --nx-text: #35201A; --nx-text-strong: #241310; --nx-text-muted: #946B58; --nx-accent: #F97316;
+}
+
+/* 표면·배경 */
+[class~="bg-[#FDFBF7]"] { background-color: var(--nx-bg) !important; }
+[class~="bg-white"] { background-color: var(--nx-surface) !important; }
+[class~="bg-[#FAF7F2]"], [class~="bg-[#F7F3EC]"], [class~="bg-[#F4EFE6]"], [class~="bg-[#EDE7DC]"], [class~="bg-[#FDFBF7]"] { background-color: var(--nx-surface-3) !important; }
+/* 텍스트 */
+[class~="text-[#2C2520]"], [class~="text-[#3E2723]"] { color: var(--nx-text) !important; }
+[class~="text-[#5C5046]"] { color: var(--nx-text-strong) !important; }
+[class~="text-[#7A6A5C]"], [class~="text-[#8C8075]"], [class~="text-[#A89A8E]"] { color: var(--nx-text-muted) !important; }
+/* 테두리 */
+[class~="border-[#EBE5DA]"], [class~="border-[#DCD3C5]"], [class~="border-[#E7E2D9]"], [class~="border-[#D9D2C6]"] { border-color: var(--nx-border) !important; }
+
+html[data-theme] body { background-color: var(--nx-bg); color: var(--nx-text); }
+html[data-theme] input, html[data-theme] textarea, html[data-theme] select { color: var(--nx-text); }
+
+/* ============================================================
+   Apple 스타일 모션 (스프링 · 감속 이징)
+   ============================================================ */
+@keyframes nxViewIn {
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.995); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes nxDrawerInLeft {
+  from { opacity: 0.4; transform: translate3d(-16px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes nxDrawerInRight {
+  from { opacity: 0.4; transform: translate3d(16px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes nxModalPop {
+  from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.965); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes nxBubbleIn {
+  from { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.98); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes nxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nxScaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+
+.nx-view-enter { animation: nxViewIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both; will-change: transform, opacity; }
+.nx-drawer-left { animation: nxDrawerInLeft 300ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.nx-drawer-right { animation: nxDrawerInRight 300ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.nx-modal-pop { animation: nxModalPop 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.nx-bubble-in { animation: nxBubbleIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.nx-fade-in { animation: nxFadeIn 220ms ease both; }
+.nx-scale-in { animation: nxScaleIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* 버튼·카드 미세 눌림 피드백 (Apple HIG) */
+button, [role="button"], a.nx-press {
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1), background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, box-shadow 200ms ease, opacity 160ms ease;
+}
+button:active:not(:disabled) { transform: scale(0.975); }
+
+/* 모달·팝오버 공통 등장 */
+.fixed > .rounded-2xl, .fixed > .rounded-3xl { animation: nxModalPop 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ============================================================
+   반응형 안전장치
+   ============================================================ */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+body { min-height: 100dvh; }
+* { -webkit-tap-highlight-color: transparent; }
+
+/* 모바일 주소창·노치 대응 */
+.nx-safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+.nx-safe-top { padding-top: env(safe-area-inset-top); }
+
+/* ============================================================
+   테마팩 디테일: 모서리 · 패턴 · 포인트
+   ============================================================ */
+:root {
+  --nx-radius-btn: 0.75rem;
+  --nx-radius-card: 1rem;
+  --nx-radius-bubble: 1rem;
+  --nx-pattern: none;
+}
+
+[data-theme="silver"] {
+  --nx-bg: #F5F5F7; --nx-surface: #FFFFFF; --nx-surface-2: #ECECEF; --nx-surface-3: #F7F7F9;
+  --nx-border: #E2E2E7; --nx-text: #1D1D1F; --nx-text-strong: #000000; --nx-text-muted: #6E6E73; --nx-accent: #0071E3;
+  --nx-radius-btn: 0.75rem; --nx-radius-card: 1.125rem; --nx-radius-bubble: 1.125rem;
+}
+[data-theme="chic"] {
+  --nx-bg: #0A0A0B; --nx-surface: #17181B; --nx-surface-2: #202126; --nx-surface-3: #121316;
+  --nx-border: #2A2B30; --nx-text: #F4F4F5; --nx-text-strong: #FFFFFF; --nx-text-muted: #9CA0A8; --nx-accent: #C9CDD4;
+  --nx-radius-btn: 0.2rem; --nx-radius-card: 0.25rem; --nx-radius-bubble: 0.375rem;
+  color-scheme: dark;
+}
+[data-theme="bubble"] {
+  --nx-bg: #FFF1F6; --nx-surface: #FFFFFF; --nx-surface-2: #FFE4EE; --nx-surface-3: #FFF6FA;
+  --nx-border: #FFD6E5; --nx-text: #3A2530; --nx-text-strong: #2A1822; --nx-text-muted: #A4778B; --nx-accent: #FF8FB1;
+  --nx-radius-btn: 999px; --nx-radius-card: 1.6rem; --nx-radius-bubble: 1.75rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='%23FFB6CD' opacity='0.16'%3E%3Ccircle cx='50' cy='60' r='26'/%3E%3Ccircle cx='120' cy='30' r='12'/%3E%3Ccircle cx='170' cy='120' r='30'/%3E%3Ccircle cx='60' cy='160' r='16'/%3E%3Ccircle cx='150' cy='196' r='10'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-theme="puppy"] {
+  --nx-bg: #FFFBF2; --nx-surface: #FFFFFF; --nx-surface-2: #F6EBD9; --nx-surface-3: #FFFDF7;
+  --nx-border: #EADCC6; --nx-text: #3B2E22; --nx-text-strong: #2A2018; --nx-text-muted: #9A8470; --nx-accent: #B08968;
+  --nx-radius-btn: 1.125rem; --nx-radius-card: 1.35rem; --nx-radius-bubble: 1.35rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23B08968' stroke-width='2' stroke-linecap='round' opacity='0.16'%3E%3Ccircle cx='44' cy='50' r='14'/%3E%3Cpath d='M32 40c-4-8-1-14 4-14s7 5 6 11'/%3E%3Cpath d='M56 40c4-8 1-14-4-14s-7 5-6 11'/%3E%3Ccircle cx='39' cy='49' r='1.6' fill='%23B08968'/%3E%3Ccircle cx='49' cy='49' r='1.6' fill='%23B08968'/%3E%3Cpath d='M42 56c1.5 2 3.5 2 5 0'/%3E%3Ccircle cx='128' cy='118' r='6'/%3E%3Ccircle cx='140' cy='112' r='3'/%3E%3Ccircle cx='146' cy='122' r='3'/%3E%3Ccircle cx='136' cy='130' r='3'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-theme="xmas"] {
+  --nx-bg: #0B3B2E; --nx-surface: #12503E; --nx-surface-2: #0F4534; --nx-surface-3: #0D4131;
+  --nx-border: #1D6650; --nx-text: #F3FBF6; --nx-text-strong: #FFFFFF; --nx-text-muted: #A9C9BC; --nx-accent: #E5484D;
+  --nx-radius-btn: 0.65rem; --nx-radius-card: 1rem; --nx-radius-bubble: 1.1rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%238FD3B6' stroke-width='1.8' opacity='0.28'%3E%3Cpath d='M52 96l16-26 16 26z'/%3E%3Cpath d='M56 82l12-20 12 20z'/%3E%3Cpath d='M68 96v10'/%3E%3C/g%3E%3Cg stroke='%23F3C969' stroke-width='1.8' opacity='0.4'%3E%3Cpath d='M150 46l3 7 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z'/%3E%3C/g%3E%3Cg stroke='%23DDE9F5' stroke-width='1.4' opacity='0.35'%3E%3Ccircle cx='30' cy='40' r='2'/%3E%3Ccircle cx='120' cy='120' r='2.4'/%3E%3Ccircle cx='172' cy='150' r='1.8'/%3E%3Ccircle cx='96' cy='30' r='1.8'/%3E%3Ccircle cx='20' cy='160' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  color-scheme: dark;
+}
+[data-theme="winter"] {
+  --nx-bg: #F2F8FF; --nx-surface: #FFFFFF; --nx-surface-2: #E3F0FF; --nx-surface-3: #F7FBFF;
+  --nx-border: #D6E7FA; --nx-text: #1B2A3D; --nx-text-strong: #101C2B; --nx-text-muted: #7C93AC; --nx-accent: #4C8DFF;
+  --nx-radius-btn: 1rem; --nx-radius-card: 1.25rem; --nx-radius-bubble: 1.25rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg stroke='%237FB4FF' stroke-width='1.6' stroke-linecap='round' opacity='0.35'%3E%3Cg transform='translate(30 30)'%3E%3Cpath d='M0 -14V14M-12 -7L12 7M-12 7L12 -7'/%3E%3Cpath d='M0 -14l-4 4M0 -14l4 4M0 14l-4-4M0 14l4-4'/%3E%3C/g%3E%3Cg transform='translate(88 82) scale(0.75)'%3E%3Cpath d='M0 -14V14M-12 -7L12 7M-12 7L12 -7'/%3E%3Cpath d='M0 -14l-4 4M0 -14l4 4M0 14l-4-4M0 14l4-4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 테마별 모서리 (버튼은 알약/각짐이 테마에 따라 바뀜) */
+[class~="rounded-xl"] { border-radius: var(--nx-radius-btn) !important; }
+[class~="rounded-2xl"] { border-radius: var(--nx-radius-card) !important; }
+[class~="rounded-3xl"] { border-radius: calc(var(--nx-radius-card) + 0.4rem) !important; }
+.nx-bubble-in { border-radius: var(--nx-radius-bubble) !important; }
+.nx-app-bg {
+  background-color: var(--nx-bg);
+  background-image: var(--nx-pattern, none);
+  background-size: 190px 190px;
+  background-attachment: fixed;
+}
+.nx-chat-bg { background-image: var(--nx-pattern, none); background-size: 220px 220px; }
+
+/* 아이콘 단순화: 일관된 선 두께 · 크기 */
+svg.lucide { stroke-width: 1.75; }
+
+/* 흰색·파스텔 계열 표면도 테마 표면색을 따르게 (다크 테마 가독성) */
+[class~="bg-[#FFFFFF]"], [class~="bg-[#FAFAFA]"], [class~="bg-[#F8F9FA]"],
+[class~="bg-[#FFF5F5]"], [class~="bg-[#FEF2F2]"], [class~="bg-[#FEE2E2]"], [class~="bg-[#FEF3C7]"],
+[class~="bg-[#F0F9FF]"], [class~="bg-[#E0F2FE]"], [class~="bg-[#DCFCE7]"], [class~="bg-[#FCE7F3]"],
+[class~="bg-[#FFF3E0]"], [class~="bg-[#FFF7F1]"], [class~="bg-[#FFF9EE]"] { background-color: var(--nx-surface) !important; }

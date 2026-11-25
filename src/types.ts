@@ -141,6 +141,8 @@ export interface VoiceNoteAttachment {
   type: 'voice';
   audioUrl: string;
   durationSec: number;
+  mimeType?: string;
+  sizeBytes?: number;
 }
 
 export interface LocationAttachment {

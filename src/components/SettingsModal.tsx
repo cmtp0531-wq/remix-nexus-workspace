@@ -14,7 +14,9 @@ import {
   Download,
   Upload,
   ShieldCheck,
+  Palette,
 } from 'lucide-react';
+import { ThemeSettings } from './ThemeSettings';
 import { User } from '../types';
 import {
   FirebaseAppConfig,
@@ -39,7 +41,7 @@ interface SettingsModalProps {
   onSignOut: () => void;
 }
 
-type TabKey = 'ai' | 'google' | 'data';
+type TabKey = 'ai' | 'theme' | 'google' | 'data';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -215,11 +217,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="px-5 pt-4 flex items-center gap-2 flex-wrap">
           <TabButton tabKey="ai" key="ai" icon={<Sparkles className="w-3.5 h-3.5" />} label="AI" />
+          <TabButton tabKey="theme" key="theme" icon={<Palette className="w-3.5 h-3.5" />} label="테마·색상" />
           <TabButton tabKey="google" key="google" icon={<Link2 className="w-3.5 h-3.5" />} label="Google 연동" />
           <TabButton tabKey="data" key="data" icon={<Database className="w-3.5 h-3.5" />} label="데이터" />
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4 text-[#2C2520]">
+          {tab === 'theme' && <ThemeSettings />}
           {tab === 'ai' && (
             <section className="space-y-3">
               <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4">

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Send, 
   Smile, 
@@ -23,8 +24,7 @@ import {
   Settings,
   Headphones,
   Mic,
-  MicOff,
-  MapPin,
+  MicOff,  MapPin,
   Pin,
   PinOff,
   Trash2,
@@ -37,6 +37,7 @@ import {
   Play,
   Pause,
   ExternalLink,
+  EyeOff,
   Navigation,
   Edit3,
   CheckCircle2,
@@ -84,6 +85,7 @@ import {
   searchYouTubeVideos
 } from '../services/geminiService';
 import { storage } from '../storage';
+import { contrastText } from '../theme';
 import { LocationPickerModal } from './LocationPickerModal';
 import { YouTubeHubModal } from './YouTubeHubModal';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
@@ -147,6 +149,17 @@ interface GoogleChatMainProps {
 
 const CAFE_EMOJIS = ['👍', '❤️', '☕', '🥐', '🌿', '🍰', '🥨', '💡', '🎉'];
 
+const EMOJI_PICKER_LIST = [
+  '😀', '😄', '😊', '🥰', '😂', '🤣', '😉', '😍',
+  '🤔', '😅', '😭', '😮', '😴', '😎', '🙃', '🤗',
+  '👍', '👏', '🙏', '💪', '🙌', '👀', '👋', '🤝',
+  '❤️', '💙', '💚', '💜', '🧡', '💛', '🤍', '✨',
+  '🔥', '💡', '✅', '❌', '⭐', '🎯', '💯', '🎉',
+  '🚀', '📌', '📎', '📈', '📉', '📝', '⏰', '🔔',
+  '☕', '🍰', '🥐', '🌿', '🍔', '🍜', '🍎', '🎂',
+  '🌞', '🌱', '🏠', '💬', '📚', '🎮', '🎵', '🧑‍💻',
+];
+
 const REACTION_EMOJI_PALETTE = [
   '👍', '❤️', '☕', '🎉', '🚀', '👀', '🥐', '👏',
   '🔥', '😂', '💡', '✅', '💯', '🙏', '🙌', '✨',
@@ -165,6 +178,95 @@ const SLASH_COMMANDS = [
   { cmd: '/clear', desc: '입력창 비우기', placeholder: '/clear' },
   { cmd: '/shrug', desc: '¯\\_(ツ)_/¯ 이모티콘 전송', placeholder: '/shrug' },
 ];
+
+const VoiceNotePlayer: React.FC<{ voice: VoiceNoteAttachment }> = ({ voice }) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [total, setTotal] = useState(voice.durationSec || 0);
+  const [failed, setFailed] = useState(false);
+  const bars = [5, 13, 8, 17, 10, 19, 14, 8, 12, 7, 15, 10, 6, 13, 9, 16];
+
+  const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  const toggle = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (playing) {
+      el.pause();
+      return;
+    }
+    el.play().catch(() => setFailed(true));
+  };
+  const seekTo = (ratio: number) => {
+    const el = audioRef.current;
+    if (!el) return;
+    const duration = Number.isFinite(el.duration) ? el.duration : total;
+    if (!duration) return;
+    el.currentTime = Math.max(0, Math.min(1, ratio)) * duration;
+    setProgress(el.currentTime);
+  };
+
+  return (
+    <div className="mt-2.5 p-3 rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] cafe-shadow flex items-center gap-3 w-[min(21rem,74vw)]">
+      <audio
+        ref={audioRef}
+        src={voice.audioUrl}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          setProgress(0);
+        }}
+        onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => {
+          const duration = e.currentTarget.duration;
+          if (Number.isFinite(duration) && duration > 0) setTotal(duration);
+        }}
+        onError={() => setFailed(true)}
+      />
+      <button
+        onClick={toggle}
+        data-testid="voice-play-button"
+        aria-label={playing ? '음성 메시지 일시정지' : '음성 메시지 재생'}
+        className="w-9 h-9 rounded-xl bg-[#3E2723] hover:bg-[#2C2520] text-white flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 shadow-xs"
+      >
+        {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+      </button>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between text-[11px] font-semibold text-[#2C2520] mb-1">
+          <span>음성 메모</span>
+          <span className="font-mono text-[10px] text-[#7A6A5C]">
+            {playing ? `${fmt(progress)} / ` : ''}
+            {fmt(total || voice.durationSec)}
+          </span>
+        </div>
+        <div
+          className="flex items-center gap-[3px] h-5 cursor-pointer"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            seekTo((e.clientX - rect.left) / rect.width);
+          }}
+        >
+          {bars.map((h, idx) => {
+            const reached = !failed && total > 0 && progress / total >= (idx + 0.5) / bars.length;
+            return (
+              <div
+                key={idx}
+                style={{ height: `${h}px` }}
+                className={`w-1 rounded-full transition-colors ${
+                  playing && reached ? 'bg-[#C18C5D] voice-bar-anim' : reached ? 'bg-[#C18C5D]' : 'bg-[#DCD3C5]'
+                }`}
+              />
+            );
+          })}
+        </div>
+        {failed && <p className="text-[9.5px] text-[#DC2626] mt-1">이 기기에서 재생할 수 없는 형식입니다.</p>}
+      </div>
+    </div>
+  );
+};
 
 export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   space,
@@ -241,10 +343,36 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   // Voice Note Recording
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceRecordSeconds, setVoiceRecordSeconds] = useState(0);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const voiceTimerRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceCancelRef = useRef(false);
+  const voiceElapsedRef = useRef(0);
 
   // Voice Player playback
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+
+  // 말풍선 색 (설정에서 커스텀, localStorage 저장)
+  const [bubbleColors, setBubbleColors] = useState(() => storage.getBubbleColors());
+  useEffect(() => {
+    const sync = () => setBubbleColors(storage.getBubbleColors());
+    window.addEventListener('nexus-bubble-colors', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('nexus-bubble-colors', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+  const mineTextColor = bubbleColors.mineText || contrastText(bubbleColors.mine);
+  const otherTextColor = bubbleColors.otherText || contrastText(bubbleColors.other);
+
+  // 내 화면에서만 가린 메시지 목록 (사용자별 localStorage 저장)
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<string[]>(() => storage.getHiddenMessageIds(currentUser.id));
+  useEffect(() => {
+    setHiddenMessageIds(storage.getHiddenMessageIds(currentUser.id));
+  }, [currentUser.id, messages.length]);
 
   // Sinusoidal 3-dots typing indicator
   const [isPeerTyping, setIsPeerTyping] = useState(false);
@@ -284,6 +412,71 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
   // Emoji Reaction Picker Popover target message ID (이모티콘 반응 팝오버)
   const [activeEmojiPickerMessageId, setActiveEmojiPickerMessageId] = useState<string | null>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const emojiPanelRef = useRef<HTMLDivElement | null>(null);
+  const [emojiPanelPos, setEmojiPanelPos] = useState<{ left: number; bottom: number }>({ left: 12, bottom: 96 });
+  const [reactionPanelPos, setReactionPanelPos] = useState<{ left: number; top: number }>({ left: 12, top: 120 });
+  const reactionPanelRef = useRef<HTMLDivElement | null>(null);
+
+  const toggleEmojiPicker = () => {
+    const btn = emojiButtonRef.current;
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      const width = 288;
+      setEmojiPanelPos({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        bottom: Math.max(8, window.innerHeight - rect.top + 10),
+      });
+    }
+    setShowEmojiPicker((prev) => !prev);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const node = textareaRef.current;
+    if (node && typeof node.selectionStart === 'number') {
+      const start = node.selectionStart;
+      const end = node.selectionEnd ?? start;
+      const next = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+      setText(next);
+      window.requestAnimationFrame(() => {
+        node.focus();
+        const caret = start + emoji.length;
+        node.setSelectionRange(caret, caret);
+      });
+    } else {
+      setText((prev) => prev + emoji);
+    }
+    setShowEmojiPicker(false);
+  };
+
+  useEffect(() => {
+    if (!showEmojiPicker && !activeEmojiPickerMessageId) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (emojiPanelRef.current?.contains(target) || emojiButtonRef.current?.contains(target)) return;
+      if (reactionPanelRef.current?.contains(target)) return;
+      setShowEmojiPicker(false);
+      setActiveEmojiPickerMessageId(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowEmojiPicker(false);
+        setActiveEmojiPickerMessageId(null);
+      }
+    };
+    const onViewportChange = () => {
+      setShowEmojiPicker(false);
+      setActiveEmojiPickerMessageId(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onViewportChange);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [showEmojiPicker, activeEmojiPickerMessageId]);
 
   // Message translation (per message language + original/translation toggle)
   const [translations, setTranslations] = useState<Record<string, MessageTranslationState>>({});
@@ -327,10 +520,15 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   const lastNonSystemMessage = [...messages].reverse().find((m) => !m.isSystemMessage);
   const smartReplies = getSmartReplies(lastNonSystemMessage?.content);
 
-  // Filtered messages list (supports bookmarks filter)
-  const displayedMessages = showOnlyBookmarks 
-    ? messages.filter((m) => m.isStarred || m.isBookmarked) 
+  // Filtered messages list (supports bookmarks filter + locally hidden messages)
+  const baseDisplayed = showOnlyBookmarks
+    ? messages.filter((m) => m.isStarred || m.isBookmarked)
     : messages;
+  const displayedMessages = baseDisplayed.map((m) =>
+    hiddenMessageIds.includes(m.id)
+      ? { ...m, content: '삭제된 메시지', attachments: [], reactions: [], isPinned: false, repliesCount: 0, isStarred: false }
+      : m
+  );
 
   // Slash commands filter
   const isSlashCommandMode = text.startsWith('/');
@@ -510,6 +708,17 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   // Immediate Trace-free Delete without window.confirm with Instant Undo
   const handleDeleteMessage = (messageId: string) => {
     const found = messages.find((m) => m.id === messageId);
+    const isMine = !!found && found.senderId === currentUser.id;
+
+    // 남의 메시지: 서버는 건드리지 않고 내 화면에서만 '삭제된 메시지'로 가린다.
+    if (found && !isMine) {
+      storage.hideMessageForUser(currentUser.id, messageId);
+      setHiddenMessageIds((prev) => (prev.includes(messageId) ? prev : [...prev, messageId]));
+      setDeleteToast({ message: '내 화면에서만 가렸습니다. 상대방에게는 그대로 보입니다.', undoable: false });
+      setTimeout(() => setDeleteToast(null), 4000);
+      return;
+    }
+
     if (onDeleteMessageTracedFree) {
       onDeleteMessageTracedFree(messageId);
       if (found) {
@@ -588,32 +797,145 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
     }
   };
 
-  // Voice Note Recording
-  const startVoiceRecording = () => {
-    setIsRecordingVoice(true);
+  // Voice Note Recording (실제 MediaRecorder → base64 Data URL 저장으로 새로고침 후에도 재생)
+  const pickAudioMime = () => {
+    if (typeof MediaRecorder === 'undefined') return '';
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg'];
+    try {
+      return candidates.find((type) => MediaRecorder.isTypeSupported?.(type)) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const cleanupVoiceStream = () => {
+    if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+    voiceTimerRef.current = null;
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
+    }
+  };
+
+  const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+  const finalizeVoiceRecording = async () => {
+    const cancelled = voiceCancelRef.current;
+    const duration = Math.max(1, voiceElapsedRef.current);
+    const chunks = voiceChunksRef.current;
+    voiceChunksRef.current = [];
+    mediaRecorderRef.current = null;
+    cleanupVoiceStream();
+    setIsRecordingVoice(false);
     setVoiceRecordSeconds(0);
-    voiceTimerRef.current = setInterval(() => {
-      setVoiceRecordSeconds((s) => s + 1);
-    }, 1000);
+    voiceElapsedRef.current = 0;
+    if (cancelled) return;
+    if (!chunks.length) {
+      setVoiceError('녹음된 소리가 없습니다. 마이크에 대고 다시 말해 주세요.');
+      return;
+    }
+    const blob = new Blob(chunks, { type: chunks[0].type || 'audio/webm' });
+    if (blob.size > 900 * 1024) {
+      setVoiceError('녹음이 너무 깁니다. 1분 이내로 녹음해 주세요.');
+      return;
+    }
+    try {
+      const dataUrl = await blobToDataUrl(blob);
+      const voiceAtt: VoiceNoteAttachment = {
+        type: 'voice',
+        audioUrl: dataUrl,
+        durationSec: duration,
+        mimeType: blob.type || 'audio/webm',
+        sizeBytes: blob.size,
+      };
+      onSendMessage(`음성 메시지 (${duration}초)`, [voiceAtt]);
+      setVoiceError(null);
+    } catch {
+      setVoiceError('녹음 파일을 저장하지 못했습니다. 다시 시도해 주세요.');
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    if (isRecordingVoice) return;
+    setVoiceError(null);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceError('이 브라우저는 음성 녹음을 지원하지 않습니다. Chrome·Edge·Safari 최신 버전을 사용해 주세요.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+      voiceCancelRef.current = false;
+      voiceElapsedRef.current = 0;
+      const mimeType = pickAudioMime();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
+      recorder.ondataavailable = (ev: BlobEvent) => {
+        if (ev.data && ev.data.size > 0) voiceChunksRef.current.push(ev.data);
+      };
+      recorder.onstop = () => {
+        void finalizeVoiceRecording();
+      };
+      recorder.onerror = () => {
+        setVoiceError('녹음 중 오류가 발생했습니다. 다시 시도해 주세요.');
+        cleanupVoiceStream();
+        setIsRecordingVoice(false);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setIsRecordingVoice(true);
+      setVoiceRecordSeconds(0);
+      voiceTimerRef.current = window.setInterval(() => {
+        voiceElapsedRef.current += 1;
+        setVoiceRecordSeconds(voiceElapsedRef.current);
+        if (voiceElapsedRef.current >= 60) stopVoiceRecordingAndSend();
+      }, 1000);
+    } catch (err: any) {
+      const name = String(err?.name || '');
+      cleanupVoiceStream();
+      setIsRecordingVoice(false);
+      setVoiceError(
+        name === 'NotAllowedError' || name === 'SecurityError'
+          ? '마이크 권한이 거부되었습니다. 주소창의 자물쇠(사이트 설정)에서 마이크를 허용한 뒤 다시 시도해 주세요.'
+          : name === 'NotFoundError' || name === 'DevicesNotFoundError'
+          ? '마이크를 찾을 수 없습니다. 기기에 마이크가 연결되어 있는지 확인해 주세요.'
+          : '마이크를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+      );
+    }
   };
 
   const stopVoiceRecordingAndSend = () => {
-    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
-    setIsRecordingVoice(false);
-    const duration = Math.max(1, voiceRecordSeconds);
-    const voiceAtt: VoiceNoteAttachment = {
-      type: 'voice',
-      audioUrl: 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg',
-      durationSec: duration,
-    };
-    onSendMessage(`음성 메시지 (${duration}초)`, [voiceAtt]);
-    setVoiceRecordSeconds(0);
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      cleanupVoiceStream();
+      setIsRecordingVoice(false);
+      return;
+    }
+    try {
+      recorder.requestData?.();
+    } catch {
+      /* 사파리 일부 버전은 requestData 미지원 */
+    }
+    recorder.stop();
   };
 
   const cancelVoiceRecording = () => {
-    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
-    setIsRecordingVoice(false);
-    setVoiceRecordSeconds(0);
+    voiceCancelRef.current = true;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    } else {
+      cleanupVoiceStream();
+      setIsRecordingVoice(false);
+      setVoiceRecordSeconds(0);
+      voiceElapsedRef.current = 0;
+    }
   };
 
   // Audio Huddle Chimes & Real Controls
@@ -1081,42 +1403,11 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       );
     }
 
-    // 5. Voice Note Audio Message
+    // 5. Voice Note Audio Message (실제 저장된 오디오 재생)
     if (att.type === 'voice') {
       const voice = att as VoiceNoteAttachment;
-      const isPlaying = playingVoiceId === messageId;
-
-      return (
-        <div
-          key={messageId + 'voice'}
-          className="mt-2.5 p-3 rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] cafe-shadow flex items-center gap-3 max-w-xs"
-        >
-          <button
-            onClick={() => setPlayingVoiceId(isPlaying ? null : messageId)}
-            className="w-8 h-8 rounded-xl bg-[#3E2723] hover:bg-[#2C2520] text-white flex items-center justify-center flex-shrink-0 transition-colors shadow-xs"
-          >
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-          </button>
-
-          <div className="flex-1">
-            <div className="flex items-center justify-between text-[11px] font-semibold text-[#2C2520] mb-1">
-              <span>음성 메모</span>
-              <span className="font-mono text-[#7A6A5C]">{voice.durationSec}초</span>
-            </div>
-            <div className="flex items-center gap-1 h-5">
-              {[4, 12, 8, 16, 10, 18, 14, 8, 12, 6, 14, 10, 6].map((h, idx) => (
-                <div
-                  key={idx}
-                  style={{ height: isPlaying ? undefined : `${h}px` }}
-                  className={`w-1 rounded-full ${
-                    isPlaying ? 'bg-[#C18C5D] voice-bar-anim' : 'bg-[#DCD3C5]'
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      );
+      if (!voice.audioUrl) return null;
+      return <VoiceNotePlayer key={messageId + 'voice'} voice={voice} />;
     }
 
     // 6. Real Geolocation Sharing
@@ -1559,7 +1850,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       {/* MAIN LAYOUT: Messages View & Space Canvas Drawer */}
       <div className="flex-1 flex overflow-hidden">
         {/* Messages Scroll Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+        <div className="nx-chat-bg flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {displayedMessages.length === 0 && (
             <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-center gap-2 py-10">
               <div className="w-12 h-12 rounded-2xl bg-[#F4EFE6] flex items-center justify-center">
@@ -1585,6 +1876,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             }
 
             const isMine = msg.senderId === currentUser.id;
+            const isRedacted = hiddenMessageIds.includes(msg.id);
             const isHighlighted = highlightedMessageId === msg.id;
             const isEditing = editingMessageId === msg.id;
             const senderLabel = isMine
@@ -1651,11 +1943,16 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   ) : (
                     /* Normal Speech Bubble: Distinct Google Blue on Right for user, White on Left for others */
                     <div
-                      className={`relative inline-block max-w-[85%] sm:max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed break-words shadow-sm ${
+                      className={`nx-bubble-in relative inline-block max-w-[85%] sm:max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed break-words shadow-sm ${
                         isMine
-                          ? 'bg-[#1A73E8] border border-[#1765CC] text-white rounded-tr-xs shadow-md'
-                          : 'bg-[#FFFFFF] border border-[#EBE5DA] text-[#2C2520] rounded-tl-xs shadow-xs'
-                      }`}
+                          ? 'border border-[#1765CC] rounded-tr-xs shadow-md'
+                          : 'bg-[#FFFFFF] border border-[#EBE5DA] rounded-tl-xs shadow-xs'
+                      } ${isRedacted ? 'italic opacity-70' : ''}`}
+                      style={{
+                        background: isMine ? bubbleColors.mine : bubbleColors.other,
+                        color: isMine ? mineTextColor : otherTextColor,
+                        borderColor: isRedacted ? undefined : isMine ? bubbleColors.mine : bubbleColors.other,
+                      }}
                     >
                       {/* In-line Reply Citation if this message is a reply */}
                       {msg.replyTo && (
@@ -1711,14 +2008,14 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                               );
                             }
                             return (
-                              <div key={idx} className={`whitespace-pre-wrap ${isMine ? 'text-white' : 'text-[#2C2520]'}`}>
+                              <div key={idx} className="whitespace-pre-wrap">
                                 <RichText text={part} isMine={isMine} />
                               </div>
                             );
                           })}
                         </div>
                       ) : (
-                        <div className={`whitespace-pre-wrap ${isMine ? 'text-white font-medium' : 'text-[#2C2520]'}`}>
+                        <div className="whitespace-pre-wrap font-medium">
                           <RichText text={msg.content} isMine={isMine} />
                         </div>
                       )}
@@ -1817,35 +2114,28 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                       <Smile className="w-3 h-3" />
                     </button>
 
-                    {/* Emoji Reaction Popover Palette - Floating above without overlapping */}
-                    {activeEmojiPickerMessageId === msg.id && (
-                      <div className={`absolute bottom-full mb-1.5 ${isMine ? 'right-0' : 'left-0'} bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-xl grid grid-cols-5 gap-1.5 z-50 animate-in fade-in zoom-in-95`}>
-                        <div className="col-span-5 pb-1 mb-1 border-b border-[#EBE5DA] flex items-center justify-between text-[10px] font-bold text-[#5C5046]">
-                          <span>반응 남기기</span>
-                          <button
-                            type="button"
-                            onClick={() => setActiveEmojiPickerMessageId(null)}
-                            className="p-0.5 rounded hover:bg-[#F4EFE6] text-[#A89A8E]"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                        {REACTION_EMOJI_PALETTE.map((emoji) => (
-                          <button
-                            key={emoji}
-                            type="button"
-                            onClick={() => {
-                              onToggleReaction(msg.id, emoji);
-                              setActiveEmojiPickerMessageId(null);
-                            }}
-                            className="w-7 h-7 rounded-lg hover:bg-[#F4EFE6] text-sm flex items-center justify-center transition-colors cursor-pointer"
-                            title={emoji}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {/* Emoji Reaction Popover Palette - Portal로 표시해 스크롤 영역에 잘리지 않음 */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        if (activeEmojiPickerMessageId === msg.id) {
+                          setActiveEmojiPickerMessageId(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        const width = 252;
+                        setReactionPanelPos({
+                          left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+                          top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 190)),
+                        });
+                        setActiveEmojiPickerMessageId(msg.id);
+                      }}
+                      data-testid={`reaction-picker-${msg.id}`}
+                      className="flex items-center justify-center w-6 h-5 rounded-full text-xs border border-dashed border-[#DCD3C5] text-[#7A6A5C] hover:text-[#3E2723] hover:border-[#C18C5D] hover:bg-[#F4EFE6] transition-all cursor-pointer"
+                      title="이모티콘 반응 추가"
+                    >
+                      <Smile className="w-3 h-3" />
+                    </button>
                   </div>
 
                   {/* Thread summary */}
@@ -1861,7 +2151,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 </div>
 
                 {/* Message Hover Actions Toolbar (Desktop) */}
-                <div className="opacity-0 group-hover:opacity-100 sm:flex hidden items-center gap-0.5 bg-white border border-[#EBE5DA] p-1 rounded-xl cafe-shadow transition-opacity flex-shrink-0 relative">
+                <div style={isRedacted ? { display: 'none' } : undefined} className="opacity-0 group-hover:opacity-100 sm:flex hidden items-center gap-0.5 bg-white border border-[#EBE5DA] p-1 rounded-xl cafe-shadow transition-opacity flex-shrink-0 relative">
                   {/* Quick Emojis */}
                   {REACTION_EMOJI_PALETTE.slice(0, 3).map((emoji) => (
                     <button
@@ -1966,15 +2256,18 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     </button>
                   )}
 
-                  {/* Delete Message Button */}
+                  {/* Delete Message Button — 내 메시지: 서버 영구 삭제 / 남의 메시지: 내 화면에서 가리기 */}
                   {onDeleteMessageTracedFree && (
                     <button
                       type="button"
                       onClick={() => handleDeleteMessage(msg.id)}
-                      className="p-1 hover:bg-[#FEE2E2] rounded-lg text-[#DC2626] hover:text-[#B91C1C] transition-colors cursor-pointer"
-                      title="메시지 흔적 없이 삭제"
+                      className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                        isMine ? 'hover:bg-[#FEE2E2] text-[#DC2626] hover:text-[#B91C1C]' : 'hover:bg-[#F4EFE6] text-[#7A6A5C]'
+                      }`}
+                      title={isMine ? '메시지 영구 삭제 (서버에서도 삭제)' : '내 화면에서만 가리기'}
+                      data-testid={`msg-${isMine ? 'delete' : 'hide'}-${msg.id}`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      {isMine ? <Trash2 className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                     </button>
                   )}
 
@@ -1990,7 +2283,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 </div>
 
                 {/* Mobile Touch Action Buttons (모바일 전용 간편 버튼) */}
-                <div className="sm:hidden flex items-center gap-1">
+                <div style={isRedacted ? { display: 'none' } : undefined} className="sm:hidden flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setTranslateTargetMessage(msg)}
@@ -2022,10 +2315,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     <button
                       type="button"
                       onClick={() => handleDeleteMessage(msg.id)}
-                      className="p-1 text-[#DC2626] hover:bg-[#FEE2E2] rounded-lg cursor-pointer"
-                      title="메시지 삭제"
+                      className={`p-1 rounded-lg cursor-pointer ${isMine ? 'text-[#DC2626] hover:bg-[#FEE2E2]' : 'text-[#7A6A5C] hover:bg-[#F4EFE6]'}`}
+                      title={isMine ? '메시지 삭제' : '내 화면에서만 가리기'}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      {isMine ? <Trash2 className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                     </button>
                   )}
                   <button
@@ -2147,10 +2440,12 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                             setActiveMenuMessageId(null);
                             handleDeleteMessage(msg.id);
                           }}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-[#FEE2E2] rounded-xl text-left text-[#DC2626] font-bold cursor-pointer"
+                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left font-bold cursor-pointer ${
+                            isMine ? 'hover:bg-[#FEE2E2] text-[#DC2626]' : 'hover:bg-[#F4EFE6] text-[#5C5046]'
+                          }`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>메시지 흔적 없이 삭제</span>
+                          {isMine ? <Trash2 className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          <span>{isMine ? '메시지 영구 삭제' : '내 화면에서만 가리기'}</span>
                         </button>
                       </div>
                     )}
@@ -2307,27 +2602,54 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
         {/* Voice Recording In-Progress Banner */}
         {isRecordingVoice ? (
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-[#FFF5F5] border border-[#FEB2B2] animate-pulse">
-            <div className="flex items-center gap-2 text-xs font-bold text-[#C53030]">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#E53E3E] animate-ping" />
-              <span>음성 메시지 녹음 중... ({voiceRecordSeconds}초)</span>
+          <div className="flex flex-col gap-2 p-3 rounded-2xl bg-[#FFF5F5] border border-[#FEB2B2]" data-testid="voice-recording-banner">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-[#C53030] min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#E53E3E] animate-pulse shrink-0" />
+                <span className="truncate">
+                  녹음 중 · {String(Math.floor(voiceRecordSeconds / 60)).padStart(2, '0')}:
+                  {String(voiceRecordSeconds % 60).padStart(2, '0')}
+                </span>
+                <span className="hidden sm:inline text-[10px] font-medium text-[#B91C1C]/70">최대 60초</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={cancelVoiceRecording}
+                  data-testid="voice-cancel"
+                  className="px-3 py-1.5 rounded-lg bg-white border border-[#FEB2B2] text-[11px] font-semibold text-[#7A6A5C] active:scale-95 transition-transform"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={stopVoiceRecordingAndSend}
+                  data-testid="voice-send"
+                  className="px-3 py-1.5 rounded-lg bg-[#E53E3E] text-white text-[11px] font-bold shadow-xs active:scale-95 transition-transform"
+                >
+                  완료 및 전송
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={cancelVoiceRecording}
-                className="px-3 py-1 rounded-lg bg-white border border-[#FEB2B2] text-xs font-semibold text-[#7A6A5C]"
-              >
-                취소
-              </button>
-              <button
-                onClick={stopVoiceRecordingAndSend}
-                className="px-3 py-1 rounded-lg bg-[#E53E3E] text-white text-xs font-bold shadow-xs"
-              >
-                완료 및 전송
-              </button>
+            <div className="flex items-center gap-[3px] h-6">
+              {Array.from({ length: 40 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="w-1 rounded-full bg-[#F87171] voice-bar-anim"
+                  style={{ animationDelay: `${(idx % 10) * 0.08}s`, height: `${6 + ((idx * 7) % 16)}px` }}
+                />
+              ))}
             </div>
           </div>
         ) : (
+          <>
+          {voiceError && (
+            <div className="mb-2 px-3 py-2 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[11px] text-[#B91C1C] flex items-start gap-2" data-testid="voice-error">
+              <span className="shrink-0">⚠️</span>
+              <span className="flex-1 leading-relaxed">{voiceError}</span>
+              <button onClick={() => setVoiceError(null)} className="shrink-0 hover:text-[#7F1D1D]" aria-label="오류 닫기">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
           <div className="rounded-2xl border border-[#EBE5DA] bg-white focus-within:border-[#C18C5D] transition-all cafe-shadow">
             {/* Active Reply Banner */}
             {activeReplyTarget && (
@@ -2389,26 +2711,26 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <button
                   type="button"
                   onClick={onOpenDrivePicker}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7] hover:text-[#3E2723]"
+                  className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="Google Drive 파일 공유"
                 >
-                  <HardDrive className="w-4 h-4 text-[#1565C0]" />
+                  <HardDrive className="w-4 h-4" />
                 </button>
 
                 <button
                   type="button"
                   onClick={onOpenCalendarModal}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7] hover:text-[#3E2723]"
+                  className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="Google 캘린더 일정 잡기"
                 >
-                  <CalendarIcon className="w-4 h-4 text-[#B45309]" />
+                  <CalendarIcon className="w-4 h-4" />
                 </button>
 
                 {/* Quick Poll Creator Button (Slack Feature) */}
                 <button
                   type="button"
                   onClick={() => setIsPollModalOpen(true)}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7] text-[#C18C5D] hover:text-[#3E2723]"
+                  className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="실시간 즉석 투표 만들기 (/poll)"
                 >
                   <Vote className="w-4 h-4" />
@@ -2418,7 +2740,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsLocationModalOpen(true)}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7] text-[#EA4335]"
+                  className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="실시간 사용자 GPS 위치 추적 & 공유"
                 >
                   <MapPin className="w-4 h-4" />
@@ -2428,7 +2750,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <button
                   type="button"
                   onClick={onOpenYouTubeView || (() => setIsYouTubeModalOpen(true))}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7] text-[#EA4335]"
+                  className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="YouTube 인앱 미디어 센터 및 동영상 공유"
                 >
                   <Youtube className="w-4 h-4" />
@@ -2438,7 +2760,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <button
                   type="button"
                   onClick={startVoiceRecording}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7] text-[#C18C5D] hover:text-[#3E2723]"
+                  className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="음성 메시지 녹음"
                 >
                   <Mic className="w-4 h-4" />
@@ -2448,7 +2770,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <button
                   type="button"
                   onClick={() => imageInputRef.current?.click()}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7]"
+                  className="p-1.5 rounded-lg text-[#5C5046] hover:bg-[#F4EFE6]"
                   title="이미지 첨부"
                 >
                   <ImageIcon className="w-4 h-4" />
@@ -2459,51 +2781,26 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-1.5 rounded-lg hover:bg-[#FDFBF7]"
+                  className="p-1.5 rounded-lg text-[#5C5046] hover:bg-[#F4EFE6]"
                   title="파일 첨부"
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden" />
 
-                {/* Emoji Palette Picker - Floating cleanly above toolbar */}
+                {/* Emoji Palette Picker - Portal so no scroll container can clip it */}
                 <div className="relative">
                   <button
+                    ref={emojiButtonRef}
                     type="button"
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    onClick={toggleEmojiPicker}
                     className="p-1.5 rounded-lg hover:bg-[#FDFBF7] text-[#7A6A5C] hover:text-[#3E2723] transition-colors cursor-pointer"
                     title="이모티콘 선택"
+                    data-testid="emoji-picker-button"
+                    aria-expanded={showEmojiPicker}
                   >
                     <Smile className="w-4 h-4" />
                   </button>
-
-                  {showEmojiPicker && (
-                    <div className="absolute bottom-full mb-3 left-0 bg-white border border-[#EBE5DA] rounded-2xl p-3 shadow-2xl grid grid-cols-5 gap-1.5 z-50 w-64 animate-in fade-in zoom-in-95">
-                      <div className="col-span-5 pb-1 mb-1 border-b border-[#EBE5DA] flex items-center justify-between text-[11px] font-bold text-[#5C5046]">
-                        <span>이모티콘 선택</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowEmojiPicker(false)}
-                          className="p-0.5 rounded hover:bg-[#F4EFE6] text-[#A89A8E]"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      {CAFE_EMOJIS.map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => {
-                            setText((prev) => prev + emoji);
-                            setShowEmojiPicker(false);
-                          }}
-                          className="w-8 h-8 rounded-xl hover:bg-[#F4EFE6] text-base flex items-center justify-center transition-colors cursor-pointer"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -2526,8 +2823,77 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               </div>
             </div>
           </div>
+          </>
         )}
       </div>
+
+      {/* 이모티콘 피커 (Portal: 어떤 스크롤/오버플로 영역에도 잘리지 않음) */}
+      {showEmojiPicker &&
+        createPortal(
+          <div
+            ref={emojiPanelRef}
+            data-testid="emoji-picker-panel"
+            style={{ position: 'fixed', left: emojiPanelPos.left, bottom: emojiPanelPos.bottom }}
+            className="w-72 max-w-[calc(100vw-16px)] bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-2xl z-[120] animate-in fade-in zoom-in-95"
+          >
+            <div className="pb-1.5 mb-1.5 border-b border-[#EBE5DA] flex items-center justify-between text-[11px] font-bold text-[#5C5046]">
+              <span>이모티콘</span>
+              <button type="button" onClick={() => setShowEmojiPicker(false)} className="p-0.5 rounded hover:bg-[#F4EFE6] text-[#A89A8E]" aria-label="이모티콘 닫기">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-8 gap-0.5">
+              {EMOJI_PICKER_LIST.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => insertEmoji(emoji)}
+                  data-testid={`emoji-option-${emoji}`}
+                  className="w-8 h-8 rounded-lg hover:bg-[#F4EFE6] active:scale-90 text-base flex items-center justify-center transition-transform"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* 반응 이모지 피커 (Portal) */}
+      {activeEmojiPickerMessageId &&
+        createPortal(
+          <div
+            ref={reactionPanelRef}
+            data-testid="reaction-picker-panel"
+            style={{ position: 'fixed', left: reactionPanelPos.left, top: reactionPanelPos.top }}
+            className="w-64 max-w-[calc(100vw-16px)] bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-2xl z-[120] animate-in fade-in zoom-in-95"
+          >
+            <div className="pb-1.5 mb-1.5 border-b border-[#EBE5DA] flex items-center justify-between text-[10px] font-bold text-[#5C5046]">
+              <span>반응 남기기</span>
+              <button type="button" onClick={() => setActiveEmojiPickerMessageId(null)} className="p-0.5 rounded hover:bg-[#F4EFE6] text-[#A89A8E]" aria-label="반응 피커 닫기">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {REACTION_EMOJI_PALETTE.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    onToggleReaction(activeEmojiPickerMessageId, emoji);
+                    setActiveEmojiPickerMessageId(null);
+                  }}
+                  data-testid={`reaction-option-${emoji}`}
+                  className="w-9 h-9 rounded-xl hover:bg-[#F4EFE6] active:scale-90 text-base flex items-center justify-center transition-transform"
+                  title={emoji}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* REAL YOUTUBE HUB MODAL */}
       <YouTubeHubModal

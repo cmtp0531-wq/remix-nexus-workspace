@@ -64,6 +64,7 @@ import {
   signOutGoogle, 
   auth, 
   saveCloudChatMessage, 
+  deleteCloudChatMessage,
   subscribeToCloudChatMessages,
   saveUserProfileToFirestore,
   subscribeToCloudUsers,
@@ -971,13 +972,29 @@ function WorkspaceApp() {
     setMessagesMap(nextMap);
   };
 
-  // 2. TRACE-FREE MESSAGE DELETE (흔적 없는 완전 삭제)
+  // 2. MESSAGE DELETE — 내 메시지는 서버에서 영구 삭제, 남의 메시지는 내 화면에서만 감추기
   const handleDeleteMessageTracedFree = (messageId: string) => {
     const msgs = messagesMap[activeSpaceId] || [];
+    const target = msgs.find((m) => m.id === messageId);
+    const isMine = !target || target.senderId === currentUser.id;
+
+    if (!isMine) {
+      // 상대 메시지: 서버는 그대로 두고, 나에게만 보이지 않게 저장
+      storage.hideMessageForUser(currentUser.id, messageId);
+      return;
+    }
+
     const nextMsgs = msgs.filter((m) => m.id !== messageId);
     const nextMap = { ...messagesMap, [activeSpaceId]: nextMsgs };
     storage.saveMessages(nextMap);
     setMessagesMap(nextMap);
+
+    // 서버(Firestore)에서도 영구 삭제 — 본인 메시지만 규칙상 허용됨
+    if (auth?.currentUser?.uid === currentUser.id && !activeSpaceId.startsWith('notes_')) {
+      void deleteCloudChatMessage(activeSpaceId, messageId).catch((error) => {
+        console.error('Could not delete chat message from Firestore:', error);
+      });
+    }
 
     // If deleted message was pinned, clear pin
     if (activeSpace.pinnedMessageId === messageId) {
@@ -1829,7 +1846,7 @@ function WorkspaceApp() {
   };
 
   return (
-    <div className="flex h-[100dvh] w-full max-w-full overflow-hidden bg-[#FDFBF7] text-[#2C2520] font-sans antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] relative">
+    <div className="nx-app-bg flex h-[100dvh] w-full max-w-full overflow-hidden bg-[#FDFBF7] text-[#2C2520] font-sans antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] relative">
       {/* Real Floating Notification Toasts (Works on Tablet, Phone, Laptop) */}
       <div className="fixed top-3 right-3 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
         {inAppNotifs.map((notif) => (
@@ -1861,9 +1878,9 @@ function WorkspaceApp() {
       />
 
       {/* Google 로그인 오류 / 게스트 안내 배너 (화면 상단 고정) */}
-      <div className="fixed top-[60px] left-0 right-0 z-[60] flex flex-col items-end gap-2 px-2 pt-1 pointer-events-none">
+      <div className="fixed bottom-24 sm:bottom-28 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pointer-events-none">
         {authError && (
-          <div className="pointer-events-auto w-full max-w-2xl px-4 py-2.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold flex items-start gap-2 shadow-lg animate-in slide-in-from-top-2">
+          <div className="pointer-events-auto w-full max-w-md px-4 py-2.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold flex items-start gap-2 shadow-lg nx-fade-in">
             <span className="flex-1 leading-relaxed">{authError}</span>
             <button
               type="button"
@@ -1876,7 +1893,7 @@ function WorkspaceApp() {
           </div>
         )}
         {isGuest && !authError && showGuestBanner && (
-          <div className="pointer-events-auto w-full max-w-2xl px-3 py-2 rounded-xl bg-white/95 border border-[#EBE5DA] text-[11px] text-[#5C5046] flex items-center gap-2 shadow-md animate-in slide-in-from-top-2">
+          <div className="pointer-events-auto w-full max-w-md px-3 py-2 rounded-xl bg-white/95 border border-[#EBE5DA] text-[11px] text-[#5C5046] flex items-center gap-2 shadow-md nx-fade-in">
             <span className="flex-1 leading-relaxed">
               <strong className="text-[#2C2520]">게스트 모드</strong> — Google로 로그인하면 대화·할 일·문서가 내 계정에 안전하게 동기화됩니다.
             </span>
@@ -1975,7 +1992,7 @@ function WorkspaceApp() {
       {/* 2. Main Viewport - Apple-style Focus Modes */}
       {/* 2.1 Full Chat Mode */}
       {focusMode === 'chat' && (
-        <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        <main className="nx-view-enter flex-1 flex flex-col h-full overflow-hidden min-w-0">
           {/* Top minimal status bar if work item is active */}
           {hasActiveWork && (
             <div className="h-9 px-4 bg-[#FAF7F0] border-b border-[#EBE5DA] flex items-center justify-between text-xs shrink-0 select-none">
@@ -2029,7 +2046,7 @@ function WorkspaceApp() {
 
       {/* 2.2 Split Dual Mode (50:50) */}
       {focusMode === 'split' && (
-        <main className="flex-1 flex flex-col md:flex-row h-full overflow-hidden min-w-0">
+        <main className="nx-view-enter flex-1 flex flex-col md:flex-row h-full overflow-hidden min-w-0">
           {/* Left: Chat Pane (50%) */}
           <div className="w-full md:w-1/2 h-full flex flex-col border-r border-[#EBE5DA] overflow-hidden min-w-0 relative">
             {/* Apple macOS style Pane Header */}
@@ -2155,7 +2172,7 @@ function WorkspaceApp() {
 
       {/* 2.3 Full Work Mode with Side Ambient Chat Notification Strip */}
       {focusMode === 'work' && (
-        <main className="flex-1 flex h-full overflow-hidden min-w-0">
+        <main className="nx-view-enter flex-1 flex h-full overflow-hidden min-w-0">
           {/* Main Full-Width Work Area */}
           <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-[#FDFBF7]">
             {/* Top Work Controls (모바일에서는 각 화면의 자체 헤더를 사용) */}

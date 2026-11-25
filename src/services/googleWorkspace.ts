@@ -225,6 +225,13 @@ export const saveCloudChatMessage = async (spaceId: string, message: any) => {
   await setDoc(doc(firestore, 'spaces', spaceId, 'messages', message.id), safeMessage);
 };
 
+export const deleteCloudChatMessage = async (spaceId: string, messageId: string) => {
+  if (!auth?.currentUser || !firestore) throw new Error('Google 로그인 세션이 없습니다.');
+  const { deleteDoc } = await import('firebase/firestore');
+  // Firestore Rules: 본인이 보낸 메시지만 삭제 허용 (existing().senderId == request.auth.uid)
+  await deleteDoc(doc(firestore, 'spaces', spaceId, 'messages', messageId));
+};
+
 export const subscribeToCloudChatMessages = (spaceId: string, callback: (messages: any[]) => void, onError?: (error: Error) => void) => {
   if (!firestore) return () => {};
   const messagesQuery = query(collection(firestore, 'spaces', spaceId, 'messages'), orderBy('createdAt', 'asc'));

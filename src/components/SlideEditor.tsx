@@ -832,7 +832,7 @@ const ShapeSvg: React.FC<{ el: SlideElement }> = ({ el }) => {
 
 const hasTextLayer = (type: SlideElementType) => type !== 'image';
 
-const ElementVisual: React.FC<{ el: SlideElement }> = ({ el }) => {
+const ElementVisual: React.FC<{ el: SlideElement; hideText?: boolean }> = ({ el, hideText }) => {
   const common: React.CSSProperties = { width: '100%', height: '100%', boxSizing: 'border-box' };
 
   if (el.type === 'image') {
@@ -848,7 +848,7 @@ const ElementVisual: React.FC<{ el: SlideElement }> = ({ el }) => {
 
   const isText = el.type === 'text';
   const text = el.text || '';
-  const showText = hasTextLayer(el.type) && (text.length > 0 || isText);
+  const showText = !hideText && hasTextLayer(el.type) && (text.length > 0 || isText);
   const isBadge = el.type === 'badge';
 
   return (
@@ -938,6 +938,31 @@ const SlideView: React.FC<{ slide: Slide; className?: string; showElements?: boo
   );
 };
 
+/** 컨테이너 폭에 맞춰 16:9 슬라이드 미리보기를 자동 스케일 (Canva 스타일) */
+const SlidePreview: React.FC<{ slide: Slide; fixedWidth?: number }> = ({ slide, fixedWidth }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [previewScale, setPreviewScale] = useState(0.09);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const width = fixedWidth || el.clientWidth;
+      if (width > 0) setPreviewScale(width / SLIDE_W);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fixedWidth]);
+  return (
+    <div ref={ref} className="relative w-full overflow-hidden" style={{ aspectRatio: '16 / 9' }}>
+      <div style={{ width: SLIDE_W, height: SLIDE_H, transform: `scale(${previewScale})`, transformOrigin: 'top left', pointerEvents: 'none' }}>
+        <SlideView slide={slide} />
+      </div>
+    </div>
+  );
+};
+
 // ============================================================
 // MAIN EDITOR
 // ============================================================
@@ -967,7 +992,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [panelTab, setPanelTab] = useState<'design' | 'elements' | 'text' | 'images' | 'background'>('design');
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 640));
   const [zoom, setZoom] = useState(62);
   const [gridSnap, setGridSnap] = useState(true);
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
@@ -983,6 +1008,10 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
   const [lastSavedTime, setLastSavedTime] = useState('방금 전');
   const [toast, setToast] = useState<string | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [imageUrlDraft, setImageUrlDraft] = useState('');
+  const [bgUrlDraft, setBgUrlDraft] = useState('');
+  const manualZoomRef = useRef(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -995,6 +1024,28 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
   const slide = slides[Math.min(currentIndex, slides.length - 1)] || slides[0];
   const scale = zoom / 100;
+
+  // 캔버스가 화면(모바일 포함)에 딱 맞게 처음 열리도록 자동 화면 맞춤
+  useEffect(() => {
+    const area = scrollAreaRef.current;
+    if (!area) return;
+    const applyFit = () => {
+      if (manualZoomRef.current) return;
+      const w = area.clientWidth - 48;
+      const h = area.clientHeight - 48;
+      if (w <= 0 || h <= 0) return;
+      const fit = Math.min(w / SLIDE_W, h / SLIDE_H);
+      setZoom(Math.max(18, Math.min(100, Math.floor(fit * 100))));
+    };
+    applyFit();
+    const observer = new ResizeObserver(applyFit);
+    observer.observe(area);
+    window.addEventListener('resize', applyFit);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', applyFit);
+    };
+  }, []);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -1097,9 +1148,13 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
   const selectedElement = slide?.elements.find((el) => el.id === selectedIds[0]) || null;
 
-  // ---------------- drag / resize / rotate ----------------
-  const beginElementDrag = (e: React.MouseEvent, el: SlideElement) => {
+  // ---------------- drag / resize / rotate (Pointer Events: 마우스 + 터치 공통) ----------------
+  const lastTapRef = useRef<{ id: string; at: number }>({ id: '', at: 0 });
+
+  const beginElementDrag = (e: React.PointerEvent, el: SlideElement) => {
     e.stopPropagation();
+    if (!e.isPrimary) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     const isSelected = selectedIds.includes(el.id);
     const nextSelection = e.shiftKey
       ? isSelected
@@ -1117,7 +1172,8 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
     const startY = e.clientY;
     let started = false;
 
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
+      if (!ev.isPrimary) return;
       let dx = (ev.clientX - startX) / scale;
       let dy = (ev.clientY - startY) / scale;
       if (!started) {
@@ -1144,13 +1200,68 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
         { history: false }
       );
     };
-    const up = () => {
+    const finish = () => {
       setGuides({ v: [], h: [] });
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', finish);
     };
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
+    const up = (_ev: PointerEvent) => {
+      finish();
+      // 터치: 이동 없이 같은 요소를 두 번 탭하면 글자 편집으로 들어갑니다.
+      if (!started && !el.locked && el.type !== 'image' && el.type !== 'line' && el.type !== 'arrowLine') {
+        const now = Date.now();
+        if (lastTapRef.current.id === el.id && now - lastTapRef.current.at < 420) {
+          lastTapRef.current = { id: '', at: 0 };
+          setSelectedIds([el.id]);
+          setEditingId(el.id);
+        } else {
+          lastTapRef.current = { id: el.id, at: now };
+        }
+      }
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', finish);
+  };
+
+  /** 빈 캔버스를 드래그해 여러 요소를 한 번에 선택합니다. */
+  const beginMarquee = (e: React.PointerEvent) => {
+    if (!e.isPrimary) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    if (editingId) setEditingId(null);
+    setSelectedIds([]);
+    const start = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+    let started = false;
+    const move = (ev: PointerEvent) => {
+      const cur = { x: (ev.clientX - rect.left) / scale, y: (ev.clientY - rect.top) / scale };
+      if (!started) {
+        if (Math.abs(cur.x - start.x) < 4 && Math.abs(cur.y - start.y) < 4) return;
+        started = true;
+      }
+      setMarquee({ x0: start.x, y0: start.y, x1: cur.x, y1: cur.y });
+      const box = {
+        x: Math.min(start.x, cur.x),
+        y: Math.min(start.y, cur.y),
+        w: Math.abs(cur.x - start.x),
+        h: Math.abs(cur.y - start.y),
+      };
+      const hits = slide.elements
+        .filter((el) => !el.locked && !(el.x + el.w < box.x || el.x > box.x + box.w || el.y + el.h < box.y || el.y > box.y + box.h))
+        .map((el) => el.id);
+      setSelectedIds(expandSelection(hits));
+    };
+    const finish = () => {
+      setMarquee(null);
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', finish);
+      document.removeEventListener('pointercancel', finish);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
   };
 
   const computeSnap = (el: SlideElement, dx: number, dy: number, excludeIds: string[]) => {
@@ -1210,9 +1321,12 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
     };
   };
 
-  const beginResize = (e: React.MouseEvent, el: SlideElement, handle: HandleKey) => {
+  const beginResize = (e: React.PointerEvent, el: SlideElement, handle: HandleKey) => {
     e.stopPropagation();
     e.preventDefault();
+    if (!e.isPrimary) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (el.locked) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const startW = el.w;
@@ -1226,7 +1340,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
     const signY = handle.includes('s') ? 1 : handle.includes('n') ? -1 : 0;
     let started = false;
 
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       if (!started) {
         started = true;
         pushHistory();
@@ -1266,23 +1380,28 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
         { history: false }
       );
     };
-    const up = () => {
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
+    const finish = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', finish);
+      document.removeEventListener('pointercancel', finish);
     };
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
   };
 
-  const beginRotate = (e: React.MouseEvent, el: SlideElement) => {
+  const beginRotate = (e: React.PointerEvent, el: SlideElement) => {
     e.stopPropagation();
     e.preventDefault();
+    if (!e.isPrimary) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (el.locked) return;
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!canvasRect) return;
     const cx = el.x + el.w / 2;
     const cy = el.y + el.h / 2;
     let started = false;
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       if (!started) {
         started = true;
         pushHistory();
@@ -1297,12 +1416,14 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
         { history: false }
       );
     };
-    const up = () => {
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
+    const finish = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', finish);
+      document.removeEventListener('pointercancel', finish);
     };
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
   };
 
   const dragSlideThumb = useRef<number | null>(null);
@@ -1437,6 +1558,80 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
     };
     addElement(el);
     showToast('✓ 이미지를 추가했습니다.');
+  };
+
+  /** 이모지 스티커 */
+  const addSticker = (emoji: string) => {
+    const el = textEl({
+      text: emoji,
+      x: Math.round((SLIDE_W - 180) / 2),
+      y: Math.round((SLIDE_H - 180) / 2),
+      w: 180,
+      h: 180,
+      fontSize: 96,
+      align: 'center',
+      verticalAlign: 'middle',
+      lineHeight: 1,
+      color: palette.text,
+    });
+    addElement(el);
+    showToast('✓ 스티커를 추가했습니다.');
+  };
+
+  /** 표(행×열)를 그룹화된 도형+텍스트로 삽입 */
+  const addTable = (rows = 3, cols = 3) => {
+    pushHistory();
+    const groupId = uid('table');
+    const cellW = Math.min(360, Math.floor(1000 / cols));
+    const cellH = 74;
+    const startX = Math.round((SLIDE_W - cols * cellW) / 2);
+    const startY = Math.round((SLIDE_H - rows * cellH) / 2);
+    const cells: SlideElement[] = [];
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const isHead = r === 0;
+        cells.push(
+          shapeEl('rect', {
+            x: startX + c * cellW,
+            y: startY + r * cellH,
+            w: cellW,
+            h: cellH,
+            fill: isHead ? palette.accent : '#FFFFFF',
+            stroke: palette.muted,
+            strokeWidth: 1.5,
+            groupId,
+          })
+        );
+        cells.push(
+          textEl({
+            x: startX + c * cellW,
+            y: startY + r * cellH,
+            w: cellW,
+            h: cellH,
+            text: isHead ? `항목 ${c + 1}` : '',
+            fontSize: 20,
+            fontWeight: isHead ? 700 : 400,
+            align: 'center',
+            verticalAlign: 'middle',
+            color: isHead ? palette.bg : palette.text,
+            groupId,
+          })
+        );
+      }
+    }
+    updateSlide((s) => ({ ...s, elements: [...s.elements, ...cells] }), { history: false });
+    setSelectedIds([]);
+    showToast('✓ 표를 추가했습니다. 셀을 두 번 탭해 내용을 채우세요.');
+  };
+
+  const addImageFromUrl = () => {
+    const url = imageUrlDraft.trim();
+    if (!url) {
+      showToast('⚠️ 이미지 주소를 입력해 주세요.');
+      return;
+    }
+    addImage(url);
+    setImageUrlDraft('');
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1928,11 +2123,11 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
           <Redo className="w-4 h-4" />
         </button>
         <div className="w-px h-5 bg-[#EBE5DA] mx-1" />
-        <button onClick={() => setZoom((z) => Math.max(25, z - 10))} className="px-1.5 py-1 rounded-lg hover:bg-white text-[#5C5046]" title="축소">
+        <button onClick={() => { manualZoomRef.current = true; setZoom((z) => Math.max(18, z - 10)); }} className="px-1.5 py-1 rounded-lg hover:bg-white text-[#5C5046]" title="축소">
           <Minimize2 className="w-3.5 h-3.5" />
         </button>
         <span className="font-mono font-bold text-[11px] w-10 text-center text-[#5C5046]">{zoom}%</span>
-        <button onClick={() => setZoom((z) => Math.min(160, z + 10))} className="px-1.5 py-1 rounded-lg hover:bg-white text-[#5C5046]" title="확대">
+        <button onClick={() => { manualZoomRef.current = true; setZoom((z) => Math.min(160, z + 10)); }} className="px-1.5 py-1 rounded-lg hover:bg-white text-[#5C5046]" title="확대">
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
         <button
@@ -1949,8 +2144,9 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
           onClick={() => {
             const area = scrollAreaRef.current;
             if (!area) return;
-            const fit = Math.min((area.clientWidth - 70) / SLIDE_W, (area.clientHeight - 70) / SLIDE_H);
-            setZoom(Math.max(25, Math.min(140, Math.floor(fit * 100))));
+            manualZoomRef.current = false;
+            const fit = Math.min((area.clientWidth - 48) / SLIDE_W, (area.clientHeight - 48) / SLIDE_H);
+            setZoom(Math.max(18, Math.min(140, Math.floor(fit * 100))));
           }}
           className="px-2 py-1 rounded-lg hover:bg-white text-[11px] font-semibold text-[#5C5046] ml-1"
         >
@@ -2011,8 +2207,8 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT RAIL */}
-        <div className="w-14 bg-white border-r border-[#EBE5DA] flex flex-col items-center py-2 gap-1 shrink-0">
+        {/* LEFT RAIL (데스크톱) */}
+        <div className="w-14 bg-white border-r border-[#EBE5DA] flex-col items-center py-2 gap-1 shrink-0 hidden sm:flex">
           {[
             { id: 'design', icon: Layout, label: '디자인' },
             { id: 'elements', icon: Shapes, label: '요소' },
@@ -2039,7 +2235,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
         {/* PANEL */}
         {panelOpen && (
-          <div className="w-72 max-w-[78vw] bg-white border-r border-[#EBE5DA] overflow-y-auto shrink-0 fixed inset-y-0 left-14 z-40 shadow-2xl sm:static sm:z-auto sm:max-w-none sm:shadow-none">
+          <div className="w-72 max-w-[86vw] bg-white border-r border-[#EBE5DA] overflow-y-auto shrink-0 fixed inset-y-0 left-0 z-40 shadow-2xl sm:static sm:z-auto sm:max-w-none sm:shadow-none nx-drawer-left">
             <div className="sm:hidden flex items-center justify-between px-3 py-2 border-b border-[#EBE5DA] sticky top-0 bg-white z-10">
               <span className="text-[11px] font-bold text-[#3E2723]">패널</span>
               <button onClick={() => setPanelOpen(false)} className="px-2 py-1 rounded-lg bg-[#F4EFE6] text-[10px] font-bold text-[#5C5046]" data-testid="close-panel">
@@ -2059,11 +2255,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                         data-testid={`template-${tpl.id}`}
                         className="group text-left rounded-xl border border-[#EBE5DA] hover:border-[#C18C5D] hover:shadow-md transition-all overflow-hidden bg-white"
                       >
-                        <div className="relative w-full overflow-hidden" style={{ aspectRatio: '16 / 9' }}>
-                          <div style={{ width: SLIDE_W, height: SLIDE_H, transform: 'scale(0.104)', transformOrigin: 'top left' }}>
-                            <SlideView slide={preview} />
-                          </div>
-                        </div>
+                        <SlidePreview slide={preview} />
                         <div className="px-2 py-1.5">
                           <p className="text-[10.5px] font-bold text-[#2C2520] leading-tight">{tpl.name}</p>
                           <p className="text-[9px] text-[#A89A8E] leading-tight">{tpl.desc}</p>
@@ -2175,6 +2367,39 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   >
                     인용 박스
                   </button>
+                </div>
+
+                <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#7A6A5C] mt-4 mb-1">스티커</h3>
+                <div className="grid grid-cols-6 gap-1">
+                  {['✨', '🔥', '💡', '📌', '⭐', '🎯', '✅', '❤️', '😀', '📈', '🚀', '🎉', '👍', '💬', '📎', '☕', '🌱', '🏷️'].map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => addSticker(emoji)}
+                      data-testid={`sticker-${emoji}`}
+                      className="h-8 rounded-lg border border-[#EBE5DA] hover:border-[#C18C5D] hover:bg-[#FAF7F2] text-base flex items-center justify-center"
+                      title={`${emoji} 스티커 추가`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+
+                <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#7A6A5C] mt-4 mb-1">표</h3>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { label: '2×2', rows: 2, cols: 2 },
+                    { label: '3×3', rows: 3, cols: 3 },
+                    { label: '4×3', rows: 4, cols: 3 },
+                  ].map((tbl) => (
+                    <button
+                      key={tbl.label}
+                      onClick={() => addTable(tbl.rows, tbl.cols)}
+                      data-testid={`table-${tbl.rows}x${tbl.cols}`}
+                      className="py-2 rounded-lg border border-[#EBE5DA] text-[10px] font-semibold hover:bg-[#FAF7F2]"
+                    >
+                      {tbl.label} 표
+                    </button>
+                  ))}
                 </div>
 
                 {selectedElement && selectedElement.type !== 'text' && selectedElement.type !== 'image' && (
@@ -2416,8 +2641,29 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   <span className="text-[9px] text-[#A89A8E]">PNG · JPG · SVG (4MB 이하)</span>
                 </button>
                 <p className="text-[9.5px] text-[#A89A8E] leading-relaxed mt-2">
-                  예시 이미지는 제공하지 않습니다. 내 이미지를 업로드하거나 이미지 주소(URL)를 배경·도형에 직접 넣어 주세요.
+                  예시 이미지는 제공하지 않습니다. 내 이미지를 업로드하거나 아래에 이미지 주소(URL)를 붙여넣으세요.
                 </p>
+
+                <div className="mt-2 flex items-center gap-1">
+                  <input
+                    type="url"
+                    value={imageUrlDraft}
+                    onChange={(e) => setImageUrlDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') addImageFromUrl();
+                    }}
+                    placeholder="https://... 이미지 주소"
+                    data-testid="image-url-input"
+                    className="flex-1 min-w-0 border border-[#EBE5DA] rounded-lg px-2 py-1.5 text-[10px] text-[#2C2520] focus:outline-none focus:border-[#C18C5D]"
+                  />
+                  <button
+                    onClick={addImageFromUrl}
+                    data-testid="image-url-add"
+                    className="px-2.5 py-1.5 rounded-lg bg-[#3E2723] text-white text-[10px] font-bold shrink-0"
+                  >
+                    추가
+                  </button>
+                </div>
 
                 {selectedElement?.type === 'image' && (
                   <div className="mt-4 space-y-3 border-t border-[#EBE5DA] pt-3">
@@ -2489,7 +2735,38 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   배경 이미지 업로드
                 </button>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  <span className="col-span-2 text-[9.5px] text-[#A89A8E]">예시 배경 이미지는 없습니다 — 내 이미지를 업로드해 주세요.</span>
+                  <span className="col-span-2 text-[9.5px] text-[#A89A8E]">예시 배경 이미지는 없습니다 — 내 이미지를 업로드하거나 URL을 넣어 주세요.</span>
+                </div>
+                <div className="mt-2 flex items-center gap-1">
+                  <input
+                    type="url"
+                    value={bgUrlDraft}
+                    onChange={(e) => setBgUrlDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && bgUrlDraft.trim()) {
+                        updateSlide((s) => ({ ...s, background: { type: 'image', imageUrl: bgUrlDraft.trim() } }));
+                        setBgUrlDraft('');
+                      }
+                    }}
+                    placeholder="https://... 배경 이미지 주소"
+                    data-testid="bg-url-input"
+                    className="flex-1 min-w-0 border border-[#EBE5DA] rounded-lg px-2 py-1.5 text-[10px] text-[#2C2520] focus:outline-none focus:border-[#C18C5D]"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!bgUrlDraft.trim()) {
+                        showToast('⚠️ 배경 이미지 주소를 입력해 주세요.');
+                        return;
+                      }
+                      updateSlide((s) => ({ ...s, background: { type: 'image', imageUrl: bgUrlDraft.trim() } }));
+                      setBgUrlDraft('');
+                      showToast('✓ 배경 이미지를 적용했습니다.');
+                    }}
+                    data-testid="bg-url-apply"
+                    className="px-2.5 py-1.5 rounded-lg bg-[#3E2723] text-white text-[10px] font-bold shrink-0"
+                  >
+                    적용
+                  </button>
                 </div>
               </div>
             )}
@@ -2498,6 +2775,31 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
 
         {/* CANVAS + THUMBNAILS */}
         <div className="flex-1 flex flex-col min-w-0">
+          {/* 모바일 도구 탭 (가로 스트립) */}
+          <div className="sm:hidden flex items-center gap-1 px-2 py-1.5 bg-white border-b border-[#EBE5DA] overflow-x-auto shrink-0 relative z-50">
+            {[
+              { id: 'design', icon: Layout, label: '디자인' },
+              { id: 'elements', icon: Shapes, label: '요소' },
+              { id: 'text', icon: Type, label: '텍스트' },
+              { id: 'images', icon: ImageIcon, label: '사진' },
+              { id: 'background', icon: Palette, label: '배경' },
+            ].map((item) => (
+              <button
+                key={`m-${item.id}`}
+                onClick={() => {
+                  setPanelTab(item.id as typeof panelTab);
+                  setPanelOpen(true);
+                }}
+                data-testid={`mobile-panel-${item.id}`}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10.5px] font-bold shrink-0 active:scale-95 transition-transform ${
+                  panelTab === item.id && panelOpen ? 'bg-[#3E2723] text-white' : 'bg-[#FAF7F2] text-[#5C5046] border border-[#EBE5DA]'
+                }`}
+              >
+                <item.icon className="w-3.5 h-3.5" />
+                {item.label}
+              </button>
+            ))}
+          </div>
           {/* ARRANGE BAR — 정렬 · 분배 · 그룹 (선택 시) */}
           {selectedIds.length > 0 && (
             <div className="h-9 px-2 bg-white border-b border-[#EBE5DA] flex items-center gap-1 overflow-x-auto shrink-0 text-[10px] font-semibold text-[#5C5046]">
@@ -2534,21 +2836,48 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
               <button onClick={ungroupSelected} className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0" title="그룹 해제 (Ctrl+Shift+G)">
                 그룹 해제
               </button>
+              <div className="w-px h-4 bg-[#EBE5DA] mx-0.5 shrink-0" />
+              {selectedElement && selectedElement.type !== 'image' && selectedElement.type !== 'line' && selectedElement.type !== 'arrowLine' && !selectedElement.locked && (
+                <button
+                  onClick={() => setEditingId(selectedElement.id)}
+                  className="px-1.5 py-1 rounded-md border border-[#0EA5E9] text-[#0369A1] bg-[#F0F9FF] hover:bg-[#E0F2FE] shrink-0"
+                  title="글자 편집 (터치에서는 두 번 탭)"
+                  data-testid="edit-selected-text"
+                >
+                  글자 편집
+                </button>
+              )}
+              <button onClick={duplicateSelected} className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0" title="복제 (Ctrl+D)" data-testid="arrange-duplicate">
+                복제
+              </button>
+              <button onClick={removeSelected} className="px-1.5 py-1 rounded-md border border-[#FCA5A5] text-[#DC2626] hover:bg-[#FEF2F2] shrink-0" title="삭제 (Delete)" data-testid="arrange-delete">
+                삭제
+              </button>
+              <button
+                onClick={() => selectedElement && patchElement(selectedElement.id, { locked: !selectedElement.locked })}
+                className="px-1.5 py-1 rounded-md border border-[#EBE5DA] hover:bg-[#FAF7F2] shrink-0"
+                title="잠금 전환"
+              >
+                {selectedElement?.locked ? '해제' : '잠금'}
+              </button>
               <span className="ml-auto text-[9px] text-[#A89A8E] shrink-0 pr-1">{selectedIds.length}개 선택</span>
             </div>
           )}
           <div
             ref={scrollAreaRef}
             className="flex-1 overflow-auto bg-[#EDE7DC] flex items-center justify-center p-6"
-            onMouseDown={() => {
-              setSelectedIds([]);
-              setEditingId(null);
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) {
+                setSelectedIds([]);
+                setEditingId(null);
+              }
             }}
           >
             <div style={{ width: SLIDE_W * scale, height: SLIDE_H * scale, flex: '0 0 auto' }} className="relative shadow-2xl">
               <div
                 ref={canvasRef}
                 data-testid="slide-canvas"
+                onPointerDown={beginMarquee}
                 style={{
                   width: SLIDE_W,
                   height: SLIDE_H,
@@ -2556,6 +2885,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   transformOrigin: 'top left',
                   position: 'relative',
                   overflow: 'hidden',
+                  touchAction: 'none',
                 }}
                 className="rounded-sm"
               >
@@ -2566,7 +2896,7 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   <div
                     key={el.id}
                     data-elid={el.id}
-                    onMouseDown={(e) => beginElementDrag(e, el)}
+                    onPointerDown={(e) => beginElementDrag(e, el)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       if (!el.locked && el.type !== 'image' && el.type !== 'line' && el.type !== 'arrowLine') {
@@ -2582,10 +2912,11 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                       height: el.h,
                       transform: `rotate(${el.rotation || 0}deg)`,
                       opacity: el.opacity ?? 1,
-                      cursor: el.locked ? 'default' : 'move',
+                      cursor: el.locked ? 'not-allowed' : 'move',
+                      touchAction: 'none',
                     }}
                   >
-                    <ElementVisual el={el} />
+                    <ElementVisual el={el} hideText={editingId === el.id} />
                   </div>
                 ))}
 
@@ -2617,50 +2948,75 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                             boxShadow: '0 0 0 1px rgba(255,255,255,0.7) inset',
                           }}
                         />
-                        {isPrimary && !el.locked && (
+                        {isPrimary && (
                           <>
                             <div
-                              onMouseDown={(e) => beginRotate(e, el)}
+                              onPointerDown={(e) => beginRotate(e, el)}
                               style={{
                                 position: 'absolute',
                                 left: '50%',
-                                top: -36,
-                                width: 16,
-                                height: 16,
-                                marginLeft: -8,
-                                borderRadius: '50%',
-                                background: '#FFFFFF',
-                                border: '2px solid #0EA5E9',
-                                cursor: 'grab',
-                                pointerEvents: 'auto',
+                                top: -46,
+                                width: 34,
+                                height: 34,
+                                marginLeft: -17,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
+                                cursor: 'grab',
+                                pointerEvents: 'auto',
+                                touchAction: 'none',
                               }}
                               title="회전"
                             >
-                              <RotateCw style={{ width: 9, height: 9, color: '#0EA5E9' }} />
+                              <span
+                                style={{
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: '50%',
+                                  background: '#FFFFFF',
+                                  border: '2px solid #0EA5E9',
+                                  boxShadow: '0 2px 6px rgba(15,23,42,0.22)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <RotateCw style={{ width: 10, height: 10, color: '#0EA5E9' }} />
+                              </span>
                             </div>
                             {HANDLES.map((h) => (
                               <div
                                 key={h.key}
                                 data-handle={h.key}
-                                onMouseDown={(e) => beginResize(e, el, h.key)}
+                                onPointerDown={(e) => beginResize(e, el, h.key)}
                                 style={{
                                   position: 'absolute',
                                   left: `${h.x * 100}%`,
                                   top: `${h.y * 100}%`,
-                                  width: 11,
-                                  height: 11,
-                                  marginLeft: -6,
-                                  marginTop: -6,
-                                  background: '#FFFFFF',
-                                  border: '2px solid #0EA5E9',
-                                  borderRadius: 2,
+                                  width: 28,
+                                  height: 28,
+                                  marginLeft: -14,
+                                  marginTop: -14,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                   cursor: h.cursor,
                                   pointerEvents: 'auto',
+                                  touchAction: 'none',
                                 }}
-                              />
+                              >
+                                <span
+                                  style={{
+                                    width: 12,
+                                    height: 12,
+                                    background: '#FFFFFF',
+                                    border: '2px solid #0EA5E9',
+                                    borderRadius: 3,
+                                    boxShadow: '0 1px 3px rgba(15,23,42,0.25)',
+                                    display: 'block',
+                                  }}
+                                />
+                              </div>
                             ))}
                           </>
                         )}
@@ -2676,6 +3032,23 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                   <div key={`gh${i}`} style={{ position: 'absolute', top: y, left: 0, height: 1, width: SLIDE_W, background: '#F43F5E', zIndex: 45, pointerEvents: 'none' }} />
                 ))}
 
+                {/* 드래그 영역 선택 (마퀴) */}
+                {marquee && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: Math.min(marquee.x0, marquee.x1),
+                      top: Math.min(marquee.y0, marquee.y1),
+                      width: Math.abs(marquee.x1 - marquee.x0),
+                      height: Math.abs(marquee.y1 - marquee.y0),
+                      border: '1.5px dashed #0EA5E9',
+                      background: 'rgba(14,165,233,0.12)',
+                      zIndex: 46,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
+
                 {/* inline text editing */}
                 {editingId &&
                   (() => {
@@ -2688,7 +3061,18 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                         value={el.text || ''}
                         onChange={(e) => patchElement(el.id, { text: e.target.value }, { history: false })}
                         onBlur={() => setEditingId(null)}
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onFocus={(e) => {
+                          const node = e.currentTarget;
+                          if (!node.value || /입력하세요|적어보세요|배지|텍스트|제목|부제목|본문/.test(node.value)) node.select();
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setEditingId(null);
+                          }
+                          e.stopPropagation();
+                        }}
                         style={{
                           position: 'absolute',
                           left: el.x,
@@ -2696,18 +3080,22 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                           width: el.w,
                           height: el.h,
                           transform: `rotate(${el.rotation || 0}deg)`,
-                          color: el.color,
+                          color: el.color || '#2C2520',
                           fontFamily: el.fontFamily,
                           fontSize: el.fontSize,
                           fontWeight: el.fontWeight,
                           fontStyle: el.italic ? 'italic' : 'normal',
                           textDecoration: el.underline ? 'underline' : 'none',
-                          textAlign: el.align,
+                          textAlign: el.align || 'left',
                           lineHeight: el.lineHeight,
-                          background: 'rgba(255,255,255,0.06)',
-                          outline: '2px dashed #0EA5E9',
+                          letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : '-0.01em',
+                          background: 'rgba(255,255,255,0.92)',
+                          outline: '2px solid #0EA5E9',
+                          borderRadius: 4,
                           resize: 'none',
-                          padding: 4,
+                          boxSizing: 'border-box',
+                          padding: el.type === 'text' ? '2px 2px' : '8px 10px',
+                          margin: 0,
                           zIndex: 50,
                         }}
                       />
@@ -2775,8 +3163,8 @@ export const SlideEditor: React.FC<SlideEditorProps> = ({
                 style={{ width: 112, height: 63 }}
                 data-testid={`slide-thumb-${i}`}
               >
-                <div style={{ width: SLIDE_W, height: SLIDE_H, transform: 'scale(0.0875)', transformOrigin: 'top left', pointerEvents: 'none' }}>
-                  <SlideView slide={s} />
+                <div style={{ width: 112, height: 63, overflow: 'hidden' }}>
+                  <SlidePreview slide={s} fixedWidth={112} />
                 </div>
                 <span className="absolute bottom-0.5 left-1 text-[8px] font-bold text-white bg-black/45 px-1 rounded">{i + 1}</span>
                 <div className="absolute top-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100">
