@@ -1905,7 +1905,7 @@ function WorkspaceApp() {
             </button>
           </div>
         )}
-        {isGuest && !authError && showGuestBanner && (
+        {isGuest && !authError && showGuestBanner && !isMobileSidebarOpen && (
           <div className="pointer-events-auto w-full max-w-md px-3 py-2 rounded-xl bg-white/95 border border-[#EBE5DA] text-[11px] text-[#5C5046] flex items-center gap-2 shadow-md nx-fade-in">
             <span className="flex-1 leading-relaxed">
               <strong className="text-[#2C2520]">게스트 모드</strong> — Google로 로그인하면 대화·할 일·문서가 내 계정에 안전하게 동기화됩니다.
