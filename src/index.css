@@ -450,3 +450,6 @@ body, button, input, textarea, select, option {
 [class~="text-[#C05621]"], [class~="text-[#B45309]"] { color: color-mix(in srgb, #B45309 70%, var(--nx-text)) !important; }
 [class~="bg-[#E6F4EA]"] { background-color: color-mix(in srgb, #10B981 16%, var(--nx-surface)) !important; }
 [class~="text-[#137333]"], [class~="text-[#15803D]"] { color: color-mix(in srgb, #0F9D58 65%, var(--nx-text)) !important; }
+
+/* 채팅 영역: 배경을 테마 포인트로 살짝 띄워 흰색 기본 말풍선도 또렷하게 보이게 */
+.nx-chat-bg { background-color: color-mix(in srgb, var(--nx-accent) 7%, var(--nx-bg)); }
