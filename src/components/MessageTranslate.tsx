@@ -240,13 +240,9 @@ export const TranslatedBlock: React.FC<TranslatedBlockProps> = ({ state, isMine,
   const [copied, setCopied] = useState(false);
   const showingTranslation = state.show === 'translation';
   return (
-    <div
-      className={`mt-2 rounded-xl border px-2.5 py-2 text-[12px] leading-relaxed ${
-        isMine ? 'bg-white/15 border-white/25 text-white' : 'bg-[#F0F9FF] border-[#BAE6FD] text-[#0C4A6E]'
-      }`}
-    >
+    <div className="nx-inline-chip mt-2 rounded-xl border px-2.5 py-2 text-[12px] leading-relaxed">
       <div className="flex items-center justify-between gap-2 mb-1">
-        <span className={`flex items-center gap-1 text-[9.5px] font-bold ${isMine ? 'text-white/80' : 'text-[#0369A1]'}`}>
+        <span className="flex items-center gap-1 text-[9.5px] font-bold opacity-80">
           <Languages className="w-3 h-3" />
           {languageLabel(state.lang)} 번역 · {state.provider === 'gemini' ? 'Gemini' : 'Google'}
         </span>
@@ -254,9 +250,7 @@ export const TranslatedBlock: React.FC<TranslatedBlockProps> = ({ state, isMine,
           <button
             type="button"
             onClick={onToggle}
-            className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold cursor-pointer ${
-              isMine ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-white hover:bg-[#E0F2FE] text-[#075985]'
-            }`}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold cursor-pointer nx-inline-chip hover:opacity-80"
             title="원문 / 번역문 전환"
           >
             <ArrowLeftRight className="w-2.5 h-2.5" />
@@ -265,7 +259,7 @@ export const TranslatedBlock: React.FC<TranslatedBlockProps> = ({ state, isMine,
           <button
             type="button"
             onClick={onRetranslate}
-            className={`p-0.5 rounded-md cursor-pointer ${isMine ? 'hover:bg-white/20 text-white/80' : 'hover:bg-white text-[#0369A1]'}`}
+            className="p-0.5 rounded-md cursor-pointer opacity-70 hover:opacity-100"
             title="다른 언어로 번역"
           >
             <RefreshCw className="w-2.5 h-2.5" />
@@ -277,7 +271,7 @@ export const TranslatedBlock: React.FC<TranslatedBlockProps> = ({ state, isMine,
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1500);
             }}
-            className={`p-0.5 rounded-md cursor-pointer ${isMine ? 'hover:bg-white/20 text-white/80' : 'hover:bg-white text-[#0369A1]'}`}
+            className="p-0.5 rounded-md cursor-pointer opacity-70 hover:opacity-100"
             title="번역문 복사"
           >
             {copied ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}

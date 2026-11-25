@@ -21,6 +21,7 @@ import {
 import { GoogleChatSidebar } from './components/GoogleChatSidebar';
 import { GoogleChatMain } from './components/GoogleChatMain';
 import { ThreadPanel, SideBySideDocEditor, TasksPanel } from './components/RightPanels';
+import { SnowFall } from './components/SnowFall';
 import { 
   DrivePickerModal, 
   CalendarEventModal, 
@@ -171,6 +172,16 @@ function WorkspaceApp() {
   const [isWorkspaceHubOpen, setIsWorkspaceHubOpen] = useState(false);
   const [isGeminiPanelOpen, setIsGeminiPanelOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  // 닫힐 때도 미끄러져 들어가도록, 닫힘 애니메이션이 끝날 때까지는 DOM 에 남겨둡니다.
+  const [isMobileSidebarMounted, setIsMobileSidebarMounted] = useState(false);
+  useEffect(() => {
+    if (isMobileSidebarOpen) {
+      setIsMobileSidebarMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setIsMobileSidebarMounted(false), 420);
+    return () => window.clearTimeout(timer);
+  }, [isMobileSidebarOpen]);
 
   // 연락처: 계정이 바뀌면 그 계정의 연락처를 불러오고, 로그인 상태면 Firestore 와 동기화합니다.
   useEffect(() => {
@@ -1847,6 +1858,8 @@ function WorkspaceApp() {
 
   return (
     <div className="nx-app-bg flex h-[100dvh] w-full max-w-full overflow-hidden bg-[#FDFBF7] text-[#2C2520] font-sans antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] relative">
+      {/* 겨울 감성 · 크리스마스 테마의 눈 내리는 모션 (클릭 방해 없음) */}
+      <SnowFall />
       {/* Real Floating Notification Toasts (Works on Tablet, Phone, Laptop) */}
       <div className="fixed top-3 right-3 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
         {inAppNotifs.map((notif) => (
@@ -1926,13 +1939,19 @@ function WorkspaceApp() {
 
       {/* 1. Left Sidebar (Google Chat in Cafe Beige theme) - Collapsible on demand */}
       <div
-        className={`${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] md:static md:z-auto md:w-auto md:max-w-none ${
+          isSidebarCollapsed ? 'md:hidden' : 'md:flex'
+        } ${
           isMobileSidebarOpen
-            ? 'fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] shadow-2xl animate-in slide-in-from-left duration-200 md:static md:w-auto md:max-w-none'
-            : isSidebarCollapsed
-            ? 'hidden'
-            : 'hidden md:flex'
+            ? 'translate-x-0 opacity-100 shadow-2xl md:shadow-none'
+            : '-translate-x-full opacity-0 pointer-events-none md:translate-x-0 md:opacity-100 md:pointer-events-auto'
         }`}
+        style={{
+          transition:
+            'translate 400ms cubic-bezier(0.16, 1, 0.3, 1), transform 400ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'translate, transform, opacity',
+        }}
+        aria-hidden={!isMobileSidebarOpen}
       >
         <GoogleChatSidebar
           currentUser={currentUser}
@@ -1982,10 +2001,11 @@ function WorkspaceApp() {
       </div>
 
       {/* Backdrop for mobile drawer */}
-      {isMobileSidebarOpen && (
+      {isMobileSidebarMounted && (
         <div
           onClick={() => setIsMobileSidebarOpen(false)}
-          className="md:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-30"
+          className={`md:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-30 ${isMobileSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          style={{ transition: 'opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)' }}
         />
       )}
 

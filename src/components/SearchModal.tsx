@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Search, MessageSquare, Hash, User as UserIcon, Zap, Plus, Bookmark, ArrowRight, CornerDownLeft } from 'lucide-react';
 import { Message, Space, User } from '../types';
 
@@ -26,31 +26,53 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   onSelectSelfNotes,
 }) => {
   const [query, setQuery] = useState('');
+  // 입력할 때마다 전체 메시지를 필터링하지 않도록 짧게 디바운스합니다 (0.1초 이내 표시).
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'spaces' | 'messages'>('all');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 90);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  // 열릴 때마다 깨끗한 상태로 시작하고 입력창에 포커스를 줍니다.
+  useEffect(() => {
+    if (!isOpen) return;
+    setQuery('');
+    setDebouncedQuery('');
+    setFilterType('all');
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 30);
+    return () => window.clearTimeout(timer);
+  }, [isOpen]);
+
+  // ⚠️ 훅 순서가 바뀌면 React #310 으로 화면이 깨지므로, 조기 return 은 모든 훅 뒤에 둡니다.
+  const matchedMessages = useMemo(() => {
+    const q = debouncedQuery.trim().toLowerCase();
+    if (!q) return messages.slice(0, 5);
+    return messages
+      .filter((m) => m.content.toLowerCase().includes(q) || m.senderName.toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [debouncedQuery, messages]);
+
+  const matchedSpaces = useMemo(() => {
+    const q = debouncedQuery.trim().toLowerCase();
+    if (!q) return spaces.slice(0, 6);
+    return spaces
+      .filter((s) => s.name.toLowerCase().includes(q) || (s.topic && s.topic.toLowerCase().includes(q)))
+      .slice(0, 20);
+  }, [debouncedQuery, spaces]);
 
   if (!isOpen) return null;
 
-  const matchedMessages = useMemo(() => {
-    if (!query.trim()) return messages.slice(0, 5);
-    const q = query.toLowerCase();
-    return messages.filter(
-      (m) => m.content.toLowerCase().includes(q) || m.senderName.toLowerCase().includes(q)
-    );
-  }, [query, messages]);
-
-  const matchedSpaces = useMemo(() => {
-    if (!query.trim()) return spaces.slice(0, 6);
-    const q = query.toLowerCase();
-    return spaces.filter((s) => s.name.toLowerCase().includes(q) || (s.topic && s.topic.toLowerCase().includes(q)));
-  }, [query, spaces]);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 p-4 bg-black/50 backdrop-blur-xs select-none animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[95] flex items-start justify-center pt-16 sm:pt-24 p-4 bg-black/50 backdrop-blur-xs select-none nx-fade-in">
       <div className="relative w-full max-w-xl rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] cafe-shadow-lg overflow-hidden text-[#2C2520]">
         {/* Search Header */}
         <div className="p-4 border-b border-[#EBE5DA] flex items-center gap-3 bg-white">
           <Search className="w-5 h-5 text-[#C18C5D] flex-shrink-0" />
           <input
+            ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

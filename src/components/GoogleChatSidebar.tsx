@@ -189,45 +189,33 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
           </button>
         </div>
 
-        {/* 연락처 (이름 직접 지정) */}
-        {onOpenContacts && (
-          <div className="px-3 pb-2">
+        {/* 연락처 · 팀원 (한 줄로 통합) */}
+        <div className="px-3 pb-2 grid grid-cols-2 gap-1.5">
+          {onOpenContacts && (
             <button
               onClick={onOpenContacts}
-              className="w-full flex items-center justify-between p-2 rounded-xl bg-[#FDFBF7] hover:bg-[#FFFFFF] border border-[#EBE5DA] transition-all text-xs font-semibold text-[#5C5046]"
+              className="flex items-center justify-center gap-1.5 p-2 rounded-xl bg-[#FDFBF7] hover:bg-[#FFFFFF] border border-[#EBE5DA] transition-all text-[11px] font-semibold text-[#5C5046]"
+              title="연락처 별명 관리"
             >
-              <div className="flex items-center gap-2">
-                <Users className="w-3.5 h-3.5 text-[#C18C5D]" />
-                <span>내 연락처</span>
-              </div>
-              <span className="text-[10px] text-[#A89A8E] font-normal">
-                {contacts.length > 0 ? `${contacts.length}명 · 이름 변경` : '이름 저장'}
-              </span>
+              <Users className="w-3.5 h-3.5 text-[#C18C5D]" />
+              <span className="truncate">연락처{contacts.length > 0 ? ` ${contacts.length}` : ''}</span>
             </button>
-          </div>
-        )}
-
-        {/* Friend Request Alert Pill */}
-        <div className="px-3 pb-2">
+          )}
           <button
             onClick={onOpenFriendModal}
-            className={`w-full flex items-center justify-between p-2 rounded-xl border transition-all text-xs font-semibold ${
+            className={`relative flex items-center justify-center gap-1.5 p-2 rounded-xl border transition-all text-[11px] font-semibold ${
               pendingRequestsCount > 0
-                ? 'bg-[#FFF5EB] border-[#FBD38D] text-[#C05621] shadow-xs'
+                ? 'bg-[#FFF5EB] border-[#FBD38D] text-[#C05621]'
                 : 'bg-[#FDFBF7] hover:bg-[#FFFFFF] border-[#EBE5DA] text-[#5C5046]'
             }`}
+            title="팀원 초대 · 친구 관리"
           >
-            <div className="flex items-center gap-2">
-              <UserPlus className="w-3.5 h-3.5 text-[#C18C5D]" />
-              <span>팀원 초대 &amp; 친구 관리</span>
-            </div>
-
-            {pendingRequestsCount > 0 ? (
-              <span className="px-2 py-0.2 rounded-full bg-[#ED8936] text-white text-[10px] font-bold animate-pulse">
-                {pendingRequestsCount}건 대기
+            <UserPlus className="w-3.5 h-3.5 text-[#C18C5D]" />
+            <span className="truncate">팀원 · 초대</span>
+            {pendingRequestsCount > 0 && (
+              <span className="absolute -top-1 -right-1 px-1.5 rounded-full bg-[#ED8936] text-white text-[9px] font-bold">
+                {pendingRequestsCount}
               </span>
-            ) : (
-              <span className="text-[10px] text-[#A89A8E] font-normal">관리</span>
             )}
           </button>
         </div>
@@ -248,29 +236,8 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               </span>
             </button>
 
-            {/* Direct In-App Gmail & Drive Access */}
-            <div className="grid grid-cols-2 gap-1.5">
-              {onOpenGmail && (
-                <button
-                  onClick={onOpenGmail}
-                  className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-white/80 hover:bg-white border border-[#EBE5DA] text-[11px] font-bold text-[#3E2723] transition-colors cursor-pointer"
-                  title="앱 내에서 Gmail 수신함 열기 및 메일 작성"
-                >
-                  <Mail className="w-3.5 h-3.5 text-[#EA4335]" />
-                  <span>Gmail 수신함</span>
-                </button>
-              )}
-              {onOpenDrive && (
-                <button
-                  onClick={onOpenDrive}
-                  className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-white/80 hover:bg-white border border-[#EBE5DA] text-[11px] font-bold text-[#3E2723] transition-colors cursor-pointer"
-                  title="내 구글 드라이브 문서 열기 및 편집"
-                >
-                  <HardDrive className="w-3.5 h-3.5 text-[#1A73E8]" />
-                  <span>내 드라이브</span>
-                </button>
-              )}
-            </div>
+            {/* Workspace 허브 하나로 Gmail · 드라이브 · 문서 · 시트 · 슬라이드 모두 들어갑니다
+                (중복되던 Gmail 수신함 / 내 드라이브 바로가기 버튼은 허브로 통합했습니다) */}
           </div>
         )}
 
@@ -547,7 +514,8 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
                   onOpenSettings();
                 }}
                 className="p-1.5 rounded-xl text-[#7A6A5C] hover:text-[#3E2723] hover:bg-[#F4EFE6] transition-colors"
-                title="설정 (Gemini 키 · Google 연동 · 데이터)"
+                title="설정 (테마·글씨체 · Gemini 키 · Google 연동 · 데이터)"
+                aria-label="설정 열기"
               >
                 <Settings className="w-3.5 h-3.5" />
               </button>

@@ -85,7 +85,7 @@ import {
   searchYouTubeVideos
 } from '../services/geminiService';
 import { storage } from '../storage';
-import { contrastText } from '../theme';
+import { contrastText, bubbleBorderColor } from '../theme';
 import { LocationPickerModal } from './LocationPickerModal';
 import { YouTubeHubModal } from './YouTubeHubModal';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
@@ -367,6 +367,8 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   }, []);
   const mineTextColor = bubbleColors.mineText || contrastText(bubbleColors.mine);
   const otherTextColor = bubbleColors.otherText || contrastText(bubbleColors.other);
+  const mineBorderColor = bubbleBorderColor(bubbleColors.mine);
+  const otherBorderColor = bubbleBorderColor(bubbleColors.other);
 
   // 내 화면에서만 가린 메시지 목록 (사용자별 localStorage 저장)
   const [hiddenMessageIds, setHiddenMessageIds] = useState<string[]>(() => storage.getHiddenMessageIds(currentUser.id));
@@ -394,6 +396,8 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
   // Quick Poll Modal
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
+  const [showMeetMenu, setShowMeetMenu] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '', '']);
 
@@ -1609,7 +1613,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               title={notificationsEnabled ? "시스템 알림 켜짐 (클릭하여 끄기)" : "시스템 알림 꺼짐 (클릭하여 켜기)"}
             >
               <Bell className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-[11px] font-bold">{notificationsEnabled ? '알림 ON' : '알림 OFF'}</span>
+              <span className="sr-only">{notificationsEnabled ? '알림 ON' : '알림 OFF'}</span>
             </button>
           )}
 
@@ -1621,39 +1625,67 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 ? 'bg-[#3E2723] text-white border-[#3E2723]'
                 : 'bg-white hover:bg-[#FAF7F2] text-[#3E2723] border-[#C18C5D]'
             }`}
-            title="제미나이 3.7 AI 비서 열기 (대화 전체 및 첨부파일 기반)"
+            title={isGeminiPanelOpen ? '제미나이 AI 패널 닫기' : '제미나이 AI 비서 열기 (대화 기반)'}
+            aria-label="제미나이 AI 패널"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#C18C5D]" />
-            <span className="hidden sm:inline font-bold">Gemini AI</span>
+            <span className="sr-only">Gemini AI</span>
           </button>
 
-          {/* 새 회의 시작 (링크는 채팅방에 자동으로 올라갑니다) */}
-          <button
-            onClick={onOpenMeetModal}
-            data-testid="start-meeting"
-            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer bg-[#EAF7EF] hover:bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0]"
-            title="새 회의를 만들고 링크를 채팅방에 자동으로 올립니다 (모두 같은 회의로 입장)"
-          >
-            <Video className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">회의</span>
-          </button>
-
-          {/* Audio Huddle (Voice Call) */}
-          <button
-            onClick={() => {
-              if (onOpenHuddle) onOpenHuddle();
-              else setIsHuddleActive(!isHuddleActive);
-            }}
-            className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-              isHuddleActive
-                ? 'bg-[#15803D] text-white border-[#15803D] shadow-xs animate-pulse'
-                : 'bg-[#F4EFE6] hover:bg-[#EBE5DA] text-[#3E2723] border-[#DCD3C5]'
-            }`}
-            title="실시간 음성 허들 (Audio Call)"
-          >
-            <Headphones className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{isHuddleActive ? '통화 중' : '음성 허들'}</span>
-          </button>
+          {/* 회의: 화상 회의와 음성 허들을 하나의 버튼으로 통합 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMeetMenu((prev) => !prev)}
+              data-testid="start-meeting"
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                isHuddleActive
+                  ? 'bg-[#15803D] text-white border-[#15803D]'
+                  : 'bg-[#EAF7EF] hover:bg-[#DCFCE7] text-[#15803D] border-[#BBF7D0]'
+              }`}
+              title="회의 시작 (화상 회의 · 음성 허들)"
+              aria-haspopup="menu"
+              aria-expanded={showMeetMenu}
+            >
+              <Video className="w-3.5 h-3.5" />
+              <span className="sr-only">{isHuddleActive ? '통화 중' : '회의'}</span>
+            </button>
+            {showMeetMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowMeetMenu(false)} />
+                <div
+                  className="absolute right-0 top-full mt-1.5 z-40 w-52 rounded-xl border p-1.5 shadow-xl"
+                  style={{ background: 'var(--nx-surface)', borderColor: 'var(--nx-border)', color: 'var(--nx-text)' }}
+                  role="menu"
+                >
+                  <button
+                    onClick={() => {
+                      setShowMeetMenu(false);
+                      onOpenMeetModal();
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold hover:opacity-80"
+                    style={{ color: 'var(--nx-text)' }}
+                    role="menuitem"
+                  >
+                    <Video className="w-3.5 h-3.5" style={{ color: 'var(--nx-accent)' }} />
+                    화상 회의 시작
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowMeetMenu(false);
+                      if (onOpenHuddle) onOpenHuddle();
+                      else setIsHuddleActive(!isHuddleActive);
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold hover:opacity-80"
+                    style={{ color: 'var(--nx-text)' }}
+                    role="menuitem"
+                  >
+                    <Headphones className="w-3.5 h-3.5" style={{ color: 'var(--nx-accent)' }} />
+                    음성 허들 (통화)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Right Auxiliary Panel Toggle is merged into the unified drawer control above */}
 
@@ -1665,28 +1697,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               className="w-7 h-7 rounded-lg object-cover border border-[#EBE5DA] hidden sm:block shrink-0"
             />
             <span className="text-xs font-bold text-[#2C2520] truncate max-w-[70px] hidden lg:inline">{currentUser.name}</span>
-            {onOpenSettings && (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className="p-1.5 rounded-lg text-[#7A6A5C] hover:text-[#2C2520] hover:bg-[#F4EFE6] transition-colors cursor-pointer shrink-0"
-                title="설정 (Gemini 키 · Google 연동 · 데이터)"
-                aria-label="설정 열기"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-            )}
-            {onLogout && (
-              <button
-                type="button"
-                onClick={onLogout}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[#DC2626] hover:bg-[#FFF5F5] border border-transparent hover:border-[#FEB2B2] text-xs font-semibold transition-colors cursor-pointer shrink-0"
-                title="로그아웃"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-bold hidden sm:inline">로그아웃</span>
-              </button>
-            )}
+            {/* 설정·로그아웃은 왼쪽 사이드바 하단 한 곳으로 통합했습니다. */}
           </div>
         </div>
       </header>
@@ -1943,16 +1954,16 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   ) : (
                     /* Normal Speech Bubble: Distinct Google Blue on Right for user, White on Left for others */
                     <div
-                      className={`nx-bubble-in relative inline-block max-w-[85%] sm:max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed break-words shadow-sm ${
-                        isMine
-                          ? 'border border-[#1765CC] rounded-tr-xs shadow-md'
-                          : 'bg-[#FFFFFF] border border-[#EBE5DA] rounded-tl-xs shadow-xs'
+                      className={`nx-bubble-in nx-msg-bubble relative inline-block max-w-[85%] sm:max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed break-words ${
+                        isMine ? 'rounded-tr-xs' : 'rounded-tl-xs'
                       } ${isRedacted ? 'italic opacity-70' : ''}`}
-                      style={{
-                        background: isMine ? bubbleColors.mine : bubbleColors.other,
-                        color: isMine ? mineTextColor : otherTextColor,
-                        borderColor: isRedacted ? undefined : isMine ? bubbleColors.mine : bubbleColors.other,
-                      }}
+                      style={
+                        {
+                          '--nx-bubble-bg': isMine ? bubbleColors.mine : bubbleColors.other,
+                          '--nx-bubble-fg': isMine ? mineTextColor : otherTextColor,
+                          '--nx-bubble-bd': isMine ? mineBorderColor : otherBorderColor,
+                        } as React.CSSProperties
+                      }
                     >
                       {/* In-line Reply Citation if this message is a reply */}
                       {msg.replyTo && (
@@ -1965,18 +1976,18 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                               setTimeout(() => el.classList.remove('bg-[#FFF3E0]'), 2000);
                             }
                           }}
-                          className="mb-2 px-2.5 py-1.5 rounded-xl bg-black/5 hover:bg-black/10 text-[11px] border-l-2 border-[#C18C5D] cursor-pointer transition-colors flex items-center gap-1.5 group/reply"
+                          className="nx-inline-chip mb-2 px-2.5 py-1.5 rounded-xl hover:opacity-80 text-[11px] border-l-2 border-[#C18C5D] cursor-pointer transition-all flex items-center gap-1.5 group/reply"
                           title="원래 메시지로 이동"
                         >
                           <Reply className="w-3.5 h-3.5 text-[#C18C5D] flex-shrink-0 group-hover/reply:scale-110 transition-transform" />
-                          <span className="font-bold text-[#3E2723] flex-shrink-0">@{msg.replyTo.senderName}:</span>
-                          <span className="truncate text-[#7A6A5C]">{msg.replyTo.content || '(첨부파일)'}</span>
+                          <span className="font-bold flex-shrink-0">@{msg.replyTo.senderName}:</span>
+                          <span className="truncate opacity-75">{msg.replyTo.content || '(첨부파일)'}</span>
                         </div>
                       )}
 
                       {/* Forward citation if any */}
                       {msg.forwardedFrom && (
-                        <div className="text-[10px] text-[#8C7A6B] font-medium mb-1.5 pb-1 border-b border-black/5 flex items-center gap-1">
+                        <div className="text-[10px] opacity-80 font-medium mb-1.5 pb-1 border-b border-current/15 flex items-center gap-1">
                           <Share2 className="w-3 h-3 text-[#C18C5D]" />
                           <span>#{msg.forwardedFrom.spaceName} 채널의 {msg.forwardedFrom.originalSender}님으로부터 전달됨</span>
                         </div>
@@ -2766,26 +2777,53 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   <Mic className="w-4 h-4" />
                 </button>
 
-                {/* Image Upload */}
-                <button
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  className="p-1.5 rounded-lg text-[#5C5046] hover:bg-[#F4EFE6]"
-                  title="이미지 첨부"
-                >
-                  <ImageIcon className="w-4 h-4" />
-                </button>
+                {/* 첨부: 사진과 파일을 한 버튼으로 통합 */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowAttachMenu((prev) => !prev)}
+                    className="p-1.5 rounded-lg text-[#5C5046] hover:bg-[#F4EFE6]"
+                    title="첨부 (사진 · 파일)"
+                    aria-haspopup="menu"
+                    aria-expanded={showAttachMenu}
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+                  {showAttachMenu && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} />
+                      <div
+                        className="absolute bottom-full left-0 mb-1.5 z-40 w-40 rounded-xl border p-1.5 shadow-xl"
+                        style={{ background: 'var(--nx-surface)', borderColor: 'var(--nx-border)', color: 'var(--nx-text)' }}
+                        role="menu"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            imageInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold hover:opacity-80"
+                          role="menuitem"
+                        >
+                          <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--nx-accent)' }} /> 사진 첨부
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            fileInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold hover:opacity-80"
+                          role="menuitem"
+                        >
+                          <FileIcon className="w-3.5 h-3.5" style={{ color: 'var(--nx-accent)' }} /> 파일 첨부
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
-
-                {/* File Upload */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-1.5 rounded-lg text-[#5C5046] hover:bg-[#F4EFE6]"
-                  title="파일 첨부"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden" />
 
                 {/* Emoji Palette Picker - Portal so no scroll container can clip it */}

@@ -1,10 +1,11 @@
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { initTheme } from './theme';
+import { initFont, initTheme } from './theme';
 
-// 저장된 테마를 첫 페인트 전에 적용해 깜박임을 막습니다.
+// 저장된 테마·글씨체를 첫 페인트 전에 적용해 깜박임을 막습니다.
 initTheme();
+initFont();
 
 createRoot(document.getElementById('root')!).render(<App />);
 

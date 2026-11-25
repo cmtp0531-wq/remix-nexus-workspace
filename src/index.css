@@ -380,3 +380,73 @@ svg.lucide { stroke-width: 1.75; }
 [class~="bg-[#FFF5F5]"], [class~="bg-[#FEF2F2]"], [class~="bg-[#FEE2E2]"], [class~="bg-[#FEF3C7]"],
 [class~="bg-[#F0F9FF]"], [class~="bg-[#E0F2FE]"], [class~="bg-[#DCFCE7]"], [class~="bg-[#FCE7F3]"],
 [class~="bg-[#FFF3E0]"], [class~="bg-[#FFF7F1]"], [class~="bg-[#FFF9EE]"] { background-color: var(--nx-surface) !important; }
+
+/* ============================================================
+   시스템 테마 색상 토큰 (버튼 · 강조 · 표면)
+   - 컴포넌트는 하드코딩 색 대신 이 변수를 쓰고,
+     아래 매핑이 기존 하드코딩 클래스도 테마 색으로 바꿔 줍니다.
+   ============================================================ */
+:root {
+  --nx-primary: #3E2723;
+  --nx-on-primary: #FFFFFF;
+  --nx-primary-hover: #2C2520;
+  --nx-font-sans: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+[data-theme="light"], [data-theme="silver"] { --nx-primary: #0071E3; --nx-on-primary: #FFFFFF; --nx-primary-hover: #0062C4; }
+[data-theme="chic"] { --nx-primary: #C9CDD4; --nx-on-primary: #0A0A0B; --nx-primary-hover: #E1E4E9; }
+[data-theme="bubble"] { --nx-primary: #FF7FA6; --nx-on-primary: #2A1822; --nx-primary-hover: #FF6A98; }
+[data-theme="puppy"] { --nx-primary: #9A7554; --nx-on-primary: #FFFFFF; --nx-primary-hover: #856246; }
+[data-theme="xmas"] { --nx-primary: #E5484D; --nx-on-primary: #FFFFFF; --nx-primary-hover: #C93A3F; }
+[data-theme="winter"] { --nx-primary: #3B7AE8; --nx-on-primary: #FFFFFF; --nx-primary-hover: #2F66C9; }
+[data-theme="lavender"] { --nx-primary: #6A4AEB; --nx-on-primary: #FFFFFF; --nx-primary-hover: #5838D6; }
+[data-theme="midnight"] { --nx-primary: #5B8DEF; --nx-on-primary: #08112A; --nx-primary-hover: #7AA3F5; }
+[data-theme="forest"] { --nx-primary: #3FBF7F; --nx-on-primary: #08170F; --nx-primary-hover: #5ACF94; }
+[data-theme="sunset"] { --nx-primary: #E86610; --nx-on-primary: #FFFFFF; --nx-primary-hover: #C9570C; }
+[data-theme="dark"] { --nx-primary: #4F8CFF; --nx-on-primary: #07101F; --nx-primary-hover: #6DA0FF; }
+
+/* 글씨체: html[data-font] 에 따라 main.tsx 가 --nx-font-sans 를 바꿉니다. */
+body, button, input, textarea, select, option {
+  font-family: var(--nx-font-sans);
+}
+
+/* 기존 하드코딩 색상 → 테마 토큰 (테마를 바꾸면 UI 전체가 함께 바뀜) */
+[class~="bg-[#3E2723]"] { background-color: var(--nx-primary) !important; }
+[class~="bg-[#3E2723]"][class~="text-white"] { color: var(--nx-on-primary) !important; }
+[class~="hover:bg-[#2C2520]"]:hover { background-color: var(--nx-primary-hover) !important; }
+[class~="hover:bg-[#3E2723]"]:hover { background-color: var(--nx-primary-hover) !important; }
+[class~="text-[#8D5B4C]"], [class~="text-[#C18C5D]"], [class~="text-[#1A73E8]"] { color: var(--nx-accent) !important; }
+[class~="bg-[#FFF9F2]"], [class~="bg-[#FAF7F2]"] { background-color: var(--nx-surface-2) !important; }
+[class~="border-[#C9BFAF]"], [class~="border-[#E7E2D9]"], [class~="border-[#D9D2C6]"] { border-color: var(--nx-border) !important; }
+[class~="bg-white/70"], [class~="bg-white/75"], [class~="bg-white/80"], [class~="bg-white/85"], [class~="bg-white/90"], [class~="bg-white/95"] {
+  background-color: color-mix(in srgb, var(--nx-surface) 82%, transparent) !important;
+}
+[class~="bg-[#FDFBF7]/60"], [class~="bg-[#FDFBF7]/70"], [class~="bg-[#FDFBF7]/80"] {
+  background-color: color-mix(in srgb, var(--nx-bg) 70%, transparent) !important;
+}
+[class~="border-white/10"], [class~="border-white/20"], [class~="border-white/25"] { border-color: color-mix(in srgb, var(--nx-border) 80%, transparent) !important; }
+
+/* ============================================================
+   말풍선: 선택한 색을 CSS 변수로 받아 확실히 적용
+   - Tailwind 의 bg-* !important 매핑보다 뒤에 선언되어 항상 이깁니다.
+   ============================================================ */
+.nx-msg-bubble {
+  background-color: var(--nx-bubble-bg, #FFFFFF) !important;
+  color: var(--nx-bubble-fg, #111827) !important;
+  border: 1px solid var(--nx-bubble-bd, rgba(0, 0, 0, 0.18)) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10), 0 6px 16px -10px rgba(0, 0, 0, 0.35) !important;
+}
+.nx-msg-bubble strong, .nx-msg-bubble em, .nx-msg-bubble a { color: inherit; }
+.nx-msg-bubble a { text-decoration: underline; text-underline-offset: 2px; }
+.nx-msg-bubble .nx-inline-chip {
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
+}
+
+/* 사이드바 · 선택 항목 · 브랜드 배지 */
+[class~="bg-[#E6DCD0]"] { background-color: color-mix(in srgb, var(--nx-accent) 16%, var(--nx-surface-2)) !important; }
+[class~="text-[#4A3E34]"] { color: var(--nx-text) !important; }
+[class~="bg-[#3E2723]"] [class~="text-white"], [class~="bg-[#3E2723]"] svg { color: var(--nx-on-primary) !important; }
+[class~="bg-[#FFF5EB]"] { background-color: color-mix(in srgb, #F59E0B 14%, var(--nx-surface)) !important; }
+[class~="text-[#C05621]"], [class~="text-[#B45309]"] { color: color-mix(in srgb, #B45309 70%, var(--nx-text)) !important; }
+[class~="bg-[#E6F4EA]"] { background-color: color-mix(in srgb, #10B981 16%, var(--nx-surface)) !important; }
+[class~="text-[#137333]"], [class~="text-[#15803D]"] { color: color-mix(in srgb, #0F9D58 65%, var(--nx-text)) !important; }

@@ -115,6 +115,7 @@ export const BUBBLE_PRESETS = [
 const THEME_KEY = 'nexus_theme_v1';
 const BUBBLE_KEY = 'nexus_bubble_colors_v1';
 const BUBBLE_CUSTOM_KEY = 'nexus_bubble_custom_v1';
+const FONT_KEY = 'nexus_font_v1';
 
 export const getTheme = (): string => {
   try {
@@ -159,18 +160,6 @@ export const initTheme = () => {
   applyTheme(getTheme());
 };
 
-/** hex/rgb 문자열의 상대 휘도로 읽기 좋은 글자색(검정/흰색)을 고른다 */
-export const contrastText = (color: string): string => {
-  const rgb = parseColor(color);
-  if (!rgb) return '#FFFFFF';
-  const [r, g, b] = rgb.map((v) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  });
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance > 0.55 ? '#1A1A1A' : '#FFFFFF';
-};
-
 const parseColor = (color: string): [number, number, number] | null => {
   if (!color) return null;
   const value = color.trim();
@@ -187,6 +176,137 @@ const parseColor = (color: string): [number, number, number] | null => {
     if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
   }
   return null;
+};
+
+/** WCAG 상대 휘도 (0=검정, 1=흰색) */
+export const relativeLuminance = (color: string): number | null => {
+  const rgb = parseColor(color);
+  if (!rgb) return null;
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** 두 색의 WCAG 대비비 (1 ~ 21) */
+export const contrastRatio = (a: string, b: string): number => {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  if (la === null || lb === null) return 0;
+  const light = Math.max(la, lb);
+  const dark = Math.min(la, lb);
+  return (light + 0.05) / (dark + 0.05);
+};
+
+const INK = '#111827';
+const PAPER = '#FFFFFF';
+
+/**
+ * 배경색 위에서 가장 선명하게 읽히는 글자색을 고른다.
+ * 흰색과 잉크색 중 실제 대비비가 더 높은 쪽을 사용하므로,
+ * 어떤 커스텀 말풍선 색을 골라도 글자가 묻히지 않는다.
+ */
+export const contrastText = (color: string): string => {
+  const luminance = relativeLuminance(color);
+  if (luminance === null) return PAPER;
+  const withWhite = 1.05 / (luminance + 0.05);
+  const withInk = (luminance + 0.05) / (relativeLuminance(INK)! + 0.05);
+  return withWhite >= withInk ? PAPER : INK;
+};
+
+const mixWith = (color: string, target: [number, number, number], ratio: number): string => {
+  const rgb = parseColor(color);
+  if (!rgb) return `rgba(${target[0]}, ${target[1]}, ${target[2]}, ${ratio})`;
+  const mixed = rgb.map((v, i) => Math.round(v * (1 - ratio) + target[i] * ratio));
+  return `#${mixed.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+};
+
+/**
+ * 말풍선 테두리색: 말풍선 배경과 같은 색 테두리를 쓰면 배경에 묻히므로,
+ * 밝은 색은 어둡게, 어두운 색은 밝게 섞어 항상 윤곽이 보이게 한다.
+ */
+export const bubbleBorderColor = (color: string): string => {
+  const luminance = relativeLuminance(color);
+  if (luminance === null) return 'rgba(0, 0, 0, 0.18)';
+  return luminance > 0.35 ? mixWith(color, [0, 0, 0], 0.24) : mixWith(color, [255, 255, 255], 0.34);
+};
+
+/* ============================================================
+   글씨체(폰트) 팩 — 한글을 지원하는 Google Fonts 12종
+   ============================================================ */
+export interface FontPreset {
+  id: string;
+  name: string;
+  desc: string;
+  /** 글씨체 버튼 자체에 미리보기로 쓸 짧은 문구 */
+  sample: string;
+  stack: string;
+}
+
+const notoFallback = "'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
+export const FONT_PRESETS: FontPreset[] = [
+  { id: 'noto', name: '노토 산스', desc: '기본 고딕', sample: '가나다 Aa', stack: notoFallback },
+  { id: 'plex', name: 'IBM 플렉스', desc: '단정한 사무용', sample: '가나다 Aa', stack: `'IBM Plex Sans KR', ${notoFallback}` },
+  { id: 'nanum', name: '나눔 고딕', desc: '익숙한 고딕', sample: '가나다 Aa', stack: `'Nanum Gothic', ${notoFallback}` },
+  { id: 'gowun-dodum', name: '고운돋움', desc: '부드러운 손글씨', sample: '가나다 Aa', stack: `'Gowun Dodum', ${notoFallback}` },
+  { id: 'jua', name: '주아', desc: '둥글 귀여움', sample: '가나다 Aa', stack: `'Jua', ${notoFallback}` },
+  { id: 'dongle', name: '동글', desc: '말랑 동글동글', sample: '가나다 Aa', stack: `'Dongle', ${notoFallback}` },
+  { id: 'gaegu', name: '개구', desc: '연필 손글씨', sample: '가나다 Aa', stack: `'Gaegu', ${notoFallback}` },
+  { id: 'dohyeon', name: '도현', desc: '힘찬 제목체', sample: '가나다 Aa', stack: `'Do Hyeon', ${notoFallback}` },
+  { id: 'sunflower', name: '해바라기', desc: '산뜻한 라운드', sample: '가나다 Aa', stack: `'Sunflower', ${notoFallback}` },
+  { id: 'noto-serif', name: '노토 명조', desc: '감성 명조', sample: '가나다 Aa', stack: `'Noto Serif KR', 'Nanum Myeongjo', serif` },
+  { id: 'gowun-batang', name: '고운바탕', desc: '차분한 바탕체', sample: '가나다 Aa', stack: `'Gowun Batang', 'Noto Serif KR', serif` },
+  { id: 'nanum-myeongjo', name: '나눔 명조', desc: '클래식 명조', sample: '가나다 Aa', stack: `'Nanum Myeongjo', 'Noto Serif KR', serif` },
+];
+
+export const getFont = (): string => {
+  try {
+    const stored = localStorage.getItem(FONT_KEY);
+    if (stored && FONT_PRESETS.some((f) => f.id === stored)) return stored;
+  } catch {
+    /* ignore */
+  }
+  return FONT_PRESETS[0].id;
+};
+
+export const applyFont = (fontId: string) => {
+  if (typeof document === 'undefined') return;
+  const preset = FONT_PRESETS.find((f) => f.id === fontId) || FONT_PRESETS[0];
+  const root = document.documentElement;
+  root.dataset.font = preset.id;
+  root.style.setProperty('--nx-font-sans', preset.stack);
+  // Tailwind 의 font-sans 유틸리티도 같은 글씨체를 쓰게 한다.
+  root.style.setProperty('--font-sans', preset.stack);
+  try {
+    localStorage.setItem(FONT_KEY, preset.id);
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new CustomEvent('nexus-font-changed', { detail: preset.id }));
+};
+
+export const initFont = () => applyFont(getFont());
+
+/* 눈 내리는 효과 on/off (겨울 감성 · 크리스마스 테마에서 표시) */
+const SNOW_KEY = 'nexus_snow_v1';
+
+export const isSnowEnabled = (): boolean => {
+  try {
+    return localStorage.getItem(SNOW_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
+
+export const setSnowEnabled = (on: boolean) => {
+  try {
+    localStorage.setItem(SNOW_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new CustomEvent('nexus-snow-changed'));
 };
 
 export const markBubbleCustomized = (custom: boolean) => {

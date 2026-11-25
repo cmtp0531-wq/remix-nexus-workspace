@@ -185,9 +185,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const TabButton: React.FC<{ tabKey: TabKey; icon: React.ReactNode; label: string }> = ({ tabKey, icon, label }) => (
     <button
       onClick={() => setTab(tabKey)}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-        tab === tabKey ? 'bg-[#3E2723] text-white shadow-sm' : 'bg-[#F4EFE6] text-[#7A6A5C] hover:bg-[#EBE5DA]'
-      }`}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+      style={
+        tab === tabKey
+          ? { background: 'var(--nx-primary)', color: 'var(--nx-on-primary)', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }
+          : { background: 'var(--nx-surface-2)', color: 'var(--nx-text-muted)' }
+      }
     >
       {icon}
       <span>{label}</span>
@@ -198,31 +201,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg h-[min(620px,88vh)] overflow-hidden bg-[#FDFBF7] rounded-3xl border border-[#E7E2D9] shadow-2xl flex flex-col">
-        <header className="flex items-center justify-between px-5 py-4 border-b border-[#EBE5DA] bg-white/70">
+      <div
+        className="relative w-full max-w-lg h-[min(620px,88vh)] overflow-hidden rounded-3xl shadow-2xl flex flex-col"
+        style={{ background: 'var(--nx-bg)', border: '1px solid var(--nx-border)', color: 'var(--nx-text)' }}
+      >
+        <header
+          className="flex items-center justify-between px-5 py-4"
+          style={{ background: 'var(--nx-surface-2)', borderBottom: '1px solid var(--nx-border)' }}
+        >
           <div>
-            <h2 className="text-base font-bold text-[#2C2520]">설정</h2>
-            <p className="text-[11px] text-[#8C8075] mt-0.5">
+            <h2 className="text-base font-bold" style={{ color: 'var(--nx-text-strong)' }}>설정</h2>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--nx-text-muted)' }}>
               {isGuest ? '게스트(로컬) 모드로 사용 중입니다' : `${currentUser.email || currentUser.name} 계정으로 연결됨`}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full hover:bg-[#EBE5DA] flex items-center justify-center text-[#7A6A5C] cursor-pointer"
+            className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+            style={{ background: 'color-mix(in srgb, var(--nx-text) 8%, transparent)', color: 'var(--nx-text-muted)' }}
             aria-label="설정 닫기"
           >
             <X className="w-4 h-4" />
           </button>
         </header>
 
-        <div className="px-5 pt-4 flex items-center gap-2 flex-wrap">
+        <div className="px-5 pt-4 pb-2 flex items-center gap-2 flex-wrap" style={{ background: 'var(--nx-bg)' }}>
           <TabButton tabKey="ai" key="ai" icon={<Sparkles className="w-3.5 h-3.5" />} label="AI" />
           <TabButton tabKey="theme" key="theme" icon={<Palette className="w-3.5 h-3.5" />} label="테마·색상" />
           <TabButton tabKey="google" key="google" icon={<Link2 className="w-3.5 h-3.5" />} label="Google 연동" />
           <TabButton tabKey="data" key="data" icon={<Database className="w-3.5 h-3.5" />} label="데이터" />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4 text-[#2C2520]">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4" style={{ color: 'var(--nx-text)' }}>
           {tab === 'theme' && <ThemeSettings />}
           {tab === 'ai' && (
             <section className="space-y-3">
