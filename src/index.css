@@ -453,3 +453,13 @@ body, button, input, textarea, select, option {
 
 /* 채팅 영역: 배경을 테마 포인트로 살짝 띄워 흰색 기본 말풍선도 또렷하게 보이게 */
 .nx-chat-bg { background-color: color-mix(in srgb, var(--nx-accent) 7%, var(--nx-bg)); }
+
+/* hover 배경도 테마에 맞게 (다크 테마에서 흰색 오버레이가 번쩍이던 문제) */
+[class~="hover:bg-[#FFFFFF]"]:hover,
+[class~="hover:bg-[#FDFBF7]"]:hover,
+[class~="hover:bg-[#FAF7F2]"]:hover,
+[class~="hover:bg-[#F4EFE6]"]:hover,
+[class~="hover:bg-[#EBE5DA]"]:hover { background-color: color-mix(in srgb, var(--nx-text) 8%, transparent) !important; }
+[class~="hover:bg-[#FDFBF7]/60"]:hover,
+[class~="hover:bg-[#FDFBF7]/70"]:hover,
+[class~="hover:bg-[#FDFBF7]/80"]:hover { background-color: color-mix(in srgb, var(--nx-accent) 10%, transparent) !important; }
