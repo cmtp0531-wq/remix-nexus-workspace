@@ -5,8 +5,8 @@
 // ============================================================
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, firestore } from './googleWorkspace';
-import { getGeminiModel, getGeminiApiKey } from './appConfig';
-import { getFont, getTheme, isSnowEnabled } from '../theme';
+import { getGeminiModel, getGeminiApiKey, saveGeminiModel } from './appConfig';
+import { applyFont, applyTheme, getFont, getTheme, isSnowEnabled, setSnowEnabled } from '../theme';
 import { storage } from '../storage';
 
 export interface UserSettings {
@@ -19,6 +19,23 @@ export interface UserSettings {
 }
 
 const isSignedInFor = (uid: string) => Boolean(auth?.currentUser && auth.currentUser.uid === uid);
+
+/** 계정에 저장된 설정을 이 기기에 적용합니다(로그인 직후). */
+export const applyRemoteSettings = (settings: UserSettings): void => {
+  if (!settings) return;
+  try {
+    if (settings.theme && settings.theme !== getTheme()) applyTheme(settings.theme);
+    if (settings.font && settings.font !== getFont()) applyFont(settings.font);
+    if (settings.bubbleColors && settings.bubbleColors.mine && settings.bubbleColors.other) {
+      storage.saveBubbleColors(settings.bubbleColors);
+      window.dispatchEvent(new CustomEvent('nexus-bubble-colors'));
+    }
+    if (typeof settings.snow === 'boolean' && settings.snow !== isSnowEnabled()) setSnowEnabled(settings.snow);
+    if (typeof settings.geminiModel === 'string' && settings.geminiModel) saveGeminiModel(settings.geminiModel);
+  } catch (error) {
+    console.warn('[Settings] 원격 설정 적용 실패:', error);
+  }
+};
 
 export const collectLocalSettings = (): UserSettings => ({
   theme: getTheme(),

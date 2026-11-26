@@ -79,7 +79,7 @@ import {
 } from './services/googleWorkspace';
 import { getGeminiModel, getStoredFirebaseConfig, isFirebaseConfigured, onSettingsChanged } from './services/appConfig';
 import { applyFont, applyTheme, getFont, getTheme } from './theme';
-import { pullUserSettings, startUserSettingsSync, stopUserSettingsSync } from './services/userSettingsService';
+import { applyRemoteSettings, pullUserSettings, startUserSettingsSync, stopUserSettingsSync } from './services/userSettingsService';
 import {
   getAccountScope,
   setAccountScope,
@@ -466,13 +466,12 @@ function WorkspaceApp() {
     setIsGuest(false);
     // Firestore 프로필 저장은 화면 렌더를 막지 않도록 백그라운드로 보냅니다.
     void saveUserProfileToFirestore(user);
-    // 이 기기에 설정이 없는 새 브라우저라면 계정에 저장된 테마·설정을 복원합니다.
+    // 계정에 저장된 테마·설정을 먼저 복원한 뒤, 이 기기의 변경분을 다시 올립니다.
+    // (계정을 바꿨을 때 이전 계정/이 기기의 테마가 새 계정을 덮어쓰지 않도록)
     void pullUserSettings(firebaseUser.uid).then((settings) => {
-      if (!settings) return;
-      if (!scopedGet('nexus_theme_v1') && settings.theme) applyTheme(settings.theme);
-      if (!scopedGet('nexus_font_v1') && settings.font) applyFont(settings.font);
+      if (settings) applyRemoteSettings(settings);
+      startUserSettingsSync(firebaseUser.uid);
     });
-    startUserSettingsSync(firebaseUser.uid);
   }, [applyAccountState]);
 
   // Firebase Authentication restores the real Google account on refresh.
