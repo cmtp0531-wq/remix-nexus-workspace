@@ -230,6 +230,12 @@ export interface Message {
   isSystemMessage?: boolean;
   reminderTime?: string;
   forwardedFrom?: { spaceName: string; originalSender: string };
+  /** 보낸 시각(ms). 읽음 수 표시에 사용합니다. */
+  createdAt?: number;
+  /** 서버 전송 상태 — 오프라인/전송 실패를 숨기지 않고 표시합니다. */
+  deliveryStatus?: 'sending' | 'sent' | 'failed';
+  /** 전송 실패 사유(오프라인 등) */
+  deliveryError?: string;
 }
 
 export interface TaskItem {

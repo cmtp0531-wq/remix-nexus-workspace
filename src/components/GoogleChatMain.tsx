@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Send, 
+  SmilePlus,
+  WifiOff,
+  RotateCcw,
   Smile, 
   MessageSquare, 
   Star, 
@@ -95,6 +98,57 @@ import { Contact } from '../services/contactsService';
 import { contactNameOf } from '../services/contactsService';
 import { InviteBell } from './InviteCenter';
 import type { Invite } from '../services/inviteService';
+import {
+  markSpaceRead,
+  setMyTyping,
+  subscribeReadMap,
+  subscribeTypingPeers,
+  type ReadMap,
+  type TypingPeer,
+} from '../services/livePresenceService';
+
+/**
+ * 팝오버가 닫힐 때도 짧게 퇴장 모션을 보여 준 뒤 언마운트하기 위한 헬퍼입니다.
+ * isOpen 이 false 가 되면 exitMs 동안 mounted 를 true 로 유지합니다.
+ */
+const usePresence = (isOpen: boolean, exitMs = 150) => {
+  const [mounted, setMounted] = useState(isOpen);
+  useEffect(() => {
+    if (isOpen) {
+      setMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setMounted(false), exitMs);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, exitMs]);
+  return mounted;
+};
+
+/**
+ * 아래에서 올라오는 시트용 상태. DOM 에 '닫힌 위치'로 먼저 붙고 다음 프레임에 열려야
+ * 열림/닫힘 슬라이드가 끊기지 않습니다.
+ */
+const useSheet = (isOpen: boolean, exitMs = 320) => {
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (isOpen) {
+      setMounted(true);
+      let second = 0;
+      const first = window.requestAnimationFrame(() => {
+        second = window.requestAnimationFrame(() => setVisible(true));
+      });
+      return () => {
+        window.cancelAnimationFrame(first);
+        window.cancelAnimationFrame(second);
+      };
+    }
+    setVisible(false);
+    const timer = window.setTimeout(() => setMounted(false), exitMs);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, exitMs]);
+  return { mounted, visible };
+};
 
 interface GoogleChatMainProps {
   space: Space;
@@ -104,6 +158,10 @@ interface GoogleChatMainProps {
   activeTab: 'chat' | 'tasks';
   onTabChange: (tab: 'chat' | 'tasks') => void;
   onSendMessage: (content: string, attachments?: Attachment[], replyTo?: MessageReplyContext) => void;
+  /** 네트워크 연결 상태 — 오프라인 배너 표시에 사용합니다. */
+  isOnline?: boolean;
+  onRetryMessage?: (messageId: string) => void;
+  onDiscardMessage?: (messageId: string) => void;
   onOpenThread: (message: Message) => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
   onToggleStarSpace: (spaceId: string) => void;
@@ -276,6 +334,9 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   activeTab,
   onTabChange,
   onSendMessage,
+  isOnline = true,
+  onRetryMessage,
+  onDiscardMessage,
   onOpenThread,
   onToggleReaction,
   onToggleStarSpace,
@@ -376,9 +437,61 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
     setHiddenMessageIds(storage.getHiddenMessageIds(currentUser.id));
   }, [currentUser.id, messages.length]);
 
-  // Sinusoidal 3-dots typing indicator
-  const [isPeerTyping, setIsPeerTyping] = useState(false);
-  const [typingPeerUser, setTypingPeerUser] = useState<User | null>(null);
+  // 실시간 상태: 타이핑 중인 동료 / 멤버별 읽음 시각
+  const [typingPeers, setTypingPeers] = useState<TypingPeer[]>([]);
+  const [readMap, setReadMap] = useState<ReadMap>({});
+  const typingIdleRef = useRef<number | null>(null);
+  const typingPublishedAtRef = useRef(0);
+  const typingPeersPresence = usePresence(typingPeers.length > 0, 220);
+
+  useEffect(() => {
+    setTypingPeers([]);
+    const unsubscribeTyping = subscribeTypingPeers(space.id, currentUser.id, setTypingPeers);
+    const unsubscribeReads = subscribeReadMap(space.id, setReadMap);
+    return () => {
+      unsubscribeTyping();
+      unsubscribeReads();
+    };
+  }, [space.id, currentUser.id]);
+
+  /** 방을 보고 있는 동안 읽음 시각을 갱신합니다 (카톡식 안 읽음 수의 기준). */
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    markSpaceRead(space.id, { id: currentUser.id, name: currentUser.name });
+  }, [space.id, currentUser.id, currentUser.name, messages.length]);
+
+  /** 입력 중 상태를 디바운스해 내보냅니다. 입력을 멈추고 3.5초가 지나면 자동 해제됩니다. */
+  const publishTyping = (isTyping: boolean) => {
+    const me = { id: currentUser.id, name: currentUser.name };
+    if (!isTyping) {
+      typingPublishedAtRef.current = 0;
+      if (typingIdleRef.current !== null) {
+        window.clearTimeout(typingIdleRef.current);
+        typingIdleRef.current = null;
+      }
+      setMyTyping(space.id, me, false);
+      return;
+    }
+
+    const now = Date.now();
+    // 너무 자주 쓰지 않도록 1.8초에 한 번만 서버에 올립니다.
+    if (now - typingPublishedAtRef.current > 1800) {
+      typingPublishedAtRef.current = now;
+      setMyTyping(space.id, me, true);
+    }
+    if (typingIdleRef.current !== null) window.clearTimeout(typingIdleRef.current);
+    typingIdleRef.current = window.setTimeout(() => {
+      typingIdleRef.current = null;
+      typingPublishedAtRef.current = 0;
+      setMyTyping(space.id, me, false);
+    }, 3500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typingIdleRef.current !== null) window.clearTimeout(typingIdleRef.current);
+    };
+  }, []);
 
   // Gemini AI Modals
   const [isGeminiSummaryOpen, setIsGeminiSummaryOpen] = useState(false);
@@ -421,6 +534,13 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   const [emojiPanelPos, setEmojiPanelPos] = useState<{ left: number; bottom: number }>({ left: 12, bottom: 96 });
   const [reactionPanelPos, setReactionPanelPos] = useState<{ left: number; top: number }>({ left: 12, top: 120 });
   const reactionPanelRef = useRef<HTMLDivElement | null>(null);
+
+  // 팝오버 퇴장 모션: 닫히는 동안에도 마지막 대상/위치를 유지해 부드럽게 사라집니다.
+  const reactionPickerMounted = usePresence(Boolean(activeEmojiPickerMessageId));
+  const lastReactionTargetRef = useRef<string | null>(null);
+  if (activeEmojiPickerMessageId) lastReactionTargetRef.current = activeEmojiPickerMessageId;
+  const reactionTargetId = activeEmojiPickerMessageId ?? lastReactionTargetRef.current;
+  const composerEmojiMounted = usePresence(showEmojiPicker);
 
   const toggleEmojiPicker = () => {
     const btn = emojiButtonRef.current;
@@ -488,6 +608,21 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
   // Slack Features: Message Reminders & Forwarding & 3-dots Context Menu
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null);
+  const menuMounted = usePresence(Boolean(activeMenuMessageId));
+  const lastMenuTargetRef = useRef<string | null>(null);
+  if (activeMenuMessageId) lastMenuTargetRef.current = activeMenuMessageId;
+  const menuTargetId = activeMenuMessageId ?? lastMenuTargetRef.current;
+
+  // 터치 롱프레스 액션 시트 (모바일·태블릿에서 메시지를 꾹 누르면 열립니다)
+  const [touchActionMessage, setTouchActionMessage] = useState<Message | null>(null);
+  const touchSheet = useSheet(Boolean(touchActionMessage));
+  const lastTouchActionRef = useRef<Message | null>(null);
+  if (touchActionMessage) lastTouchActionRef.current = touchActionMessage;
+  const touchActionTarget = touchActionMessage ?? lastTouchActionRef.current;
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchSheetOpenedAtRef = useRef(0);
   const [reminderToast, setReminderToast] = useState<{ messageId: string; content: string } | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [forwardSuccessToast, setForwardSuccessToast] = useState<string | null>(null);
@@ -510,10 +645,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
     setCanvasText(space.canvasContent || `# #${space.name} 실시간 협업 캔버스\n\n- 팀 목표 및 회의 안건\n- 참고 링크 및 리소스\n- 빠른 메모를 기록해보세요!`);
   }, [space.id, space.canvasContent]);
 
-  // No simulated peer typing - real interactions only
-  useEffect(() => {
-    setIsPeerTyping(false);
-  }, [space.id]);
+  // 입력 중 상태는 livePresenceService 구독으로만 표시합니다 (가짜 타이핑 없음).
 
   const spaceMembers = space.type === 'dm'
     ? allUsers.filter((u) => space.memberIds.includes(u.id))
@@ -522,7 +654,6 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   // Smart Compose ghost suggestion
   const smartComposeGhost = getSmartComposeSuggestion(text);
   const lastNonSystemMessage = [...messages].reverse().find((m) => !m.isSystemMessage);
-  const smartReplies = getSmartReplies(lastNonSystemMessage?.content);
 
   // Filtered messages list (supports bookmarks filter + locally hidden messages)
   const baseDisplayed = showOnlyBookmarks
@@ -648,6 +779,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
         content: activeReplyTarget.content,
       } : undefined
     );
+    publishTyping(false);
     setText('');
     setPendingAttachments([]);
     setShowEmojiPicker(false);
@@ -736,6 +868,84 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       }, 5000);
     }
   };
+
+  // ==========================================================
+  // 터치 롱프레스: 약 450ms 누르고 있으면 메시지 액션 시트를 엽니다.
+  // 누르는 중에 손가락이 10px 이상 움직이면(스크롤·미세 흔들림) 취소됩니다.
+  // ==========================================================
+  const LONG_PRESS_MS = 450;
+  const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  };
+
+  const handleMessagePointerDown = (event: React.PointerEvent, msg: Message) => {
+    if (event.pointerType === 'mouse') return; // 데스크톱은 hover 액션 바를 사용합니다.
+    if (msg.isSystemMessage || hiddenMessageIds.includes(msg.id)) return;
+    longPressFiredRef.current = false;
+    longPressStartRef.current = { x: event.clientX, y: event.clientY };
+    clearLongPress();
+    longPressStartRef.current = { x: event.clientX, y: event.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressFiredRef.current = true;
+      // 길게 누르는 동안 생긴 텍스트 선택·컨텍스트 메뉴를 정리합니다.
+      window.getSelection()?.removeAllRanges();
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(10);
+      }
+      setTouchActionMessage(msg);
+      touchSheetOpenedAtRef.current = Date.now();
+      setActiveMenuMessageId(null);
+      setActiveEmojiPickerMessageId(null);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleMessagePointerMove = (event: React.PointerEvent) => {
+    const start = longPressStartRef.current;
+    if (!start || longPressTimerRef.current === null) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > LONG_PRESS_MOVE_TOLERANCE) {
+      clearLongPress();
+    }
+  };
+
+  const handleMessagePointerEnd = () => {
+    clearLongPress();
+  };
+
+  const handleMessageClickCapture = (event: React.MouseEvent) => {
+    if (!longPressFiredRef.current) return;
+    // 롱프레스로 시트를 열었을 때, 손을 떼며 발생한 클릭이 링크·버튼을 누르지 않도록 막습니다.
+    longPressFiredRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const closeTouchActionSheet = () => setTouchActionMessage(null);
+
+  /** 시트에서 액션을 고르면 시트를 닫고 해당 동작을 실행합니다. */
+  const runFromTouchSheet = (action: () => void) => {
+    closeTouchActionSheet();
+    // 시트가 내려가는 모션과 겹치지 않도록 한 프레임 뒤에 실행합니다.
+    window.setTimeout(action, 0);
+  };
+
+  useEffect(() => clearLongPress, []);
+
+  // 롱프레스 시트가 열려 있으면 Esc 로 닫을 수 있게 합니다.
+  useEffect(() => {
+    if (!touchActionMessage) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTouchActionMessage(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [touchActionMessage]);
 
   const handleUndoDelete = () => {
     if (lastDeletedMessage) {
@@ -1533,6 +1743,87 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
     return null;
   };
 
+  /** 터치 롱프레스 시트에 표시할 액션 목록 (데스크톱 hover 액션 바와 같은 기능) */
+  const buildTouchSheetActions = (target: Message) => {
+    const mine = target.senderId === currentUser.id;
+    const items: { key: string; label: string; icon: React.ReactNode; danger?: boolean; run: () => void }[] = [
+      {
+        key: 'reply',
+        label: '답글',
+        icon: <Reply className="w-4 h-4" />,
+        run: () => {
+          setActiveReplyTarget(target);
+          textareaRef.current?.focus();
+        },
+      },
+      {
+        key: 'thread',
+        label: '스레드',
+        icon: <MessageSquare className="w-4 h-4" />,
+        run: () => onOpenThread(target),
+      },
+      {
+        key: 'translate',
+        label: '번역',
+        icon: <Languages className="w-4 h-4" />,
+        run: () => setTranslateTargetMessage(target),
+      },
+      {
+        key: 'star',
+        label: target.isStarred ? '북마크 해제' : '북마크',
+        icon: <Bookmark className="w-4 h-4" />,
+        run: () => onToggleStarMessage(target.id),
+      },
+      {
+        key: 'forward',
+        label: '전달',
+        icon: <Share2 className="w-4 h-4" />,
+        run: () => setForwardingMessage(target),
+      },
+      {
+        key: 'copy',
+        label: '복사',
+        icon: <Copy className="w-4 h-4" />,
+        run: () => {
+          void navigator.clipboard?.writeText(target.content);
+          setDeleteToast({ message: '메시지를 복사했습니다.', undoable: false });
+          window.setTimeout(() => setDeleteToast(null), 2200);
+        },
+      },
+    ];
+
+    if (onPinMessage) {
+      items.push({
+        key: 'pin',
+        label: '상단 고정',
+        icon: <Pin className="w-4 h-4" />,
+        run: () => onPinMessage(target.id, target.content),
+      });
+    }
+    if (mine && onEditMessage) {
+      items.push({
+        key: 'edit',
+        label: '수정',
+        icon: <Edit3 className="w-4 h-4" />,
+        run: () => {
+          setEditingMessageId(target.id);
+          setEditingText(target.content);
+        },
+      });
+    }
+    if (onDeleteMessageTracedFree) {
+      items.push({
+        key: 'delete',
+        label: mine ? '삭제' : '가리기',
+        icon: mine ? <Trash2 className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />,
+        danger: true,
+        run: () => handleDeleteMessage(target.id),
+      });
+    }
+
+    return items;
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#FDFBF7] text-[#2C2520] select-none relative">
       {slashHint && (
@@ -1597,24 +1888,9 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
         {/* Right Header Controls - Consolidated, Zero Duplicate Buttons */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {/* 초대 알림 센터 (벨 + 배지) */}
+          {/* 초대 알림 센터 (벨 + 배지) — 알림 수신 설정은 설정 모달 안에 있습니다. */}
           {onAcceptInvite && onDeclineInvite && (
             <InviteBell invites={invites} onAccept={onAcceptInvite} onDecline={onDeclineInvite} />
-          )}
-          {/* Notification Status Toggle (Real Native & Audio Notification) */}
-          {onToggleNotifications && (
-            <button
-              onClick={onToggleNotifications}
-              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                notificationsEnabled
-                  ? 'bg-[#E6F4EA] text-[#137333] border-[#A8DAB5]'
-                  : 'bg-[#F4EFE6] text-[#7A6A5C] border-[#DCD3C5]'
-              }`}
-              title={notificationsEnabled ? "시스템 알림 켜짐 (클릭하여 끄기)" : "시스템 알림 꺼짐 (클릭하여 켜기)"}
-            >
-              <Bell className="w-3.5 h-3.5" />
-              <span className="sr-only">{notificationsEnabled ? '알림 ON' : '알림 OFF'}</span>
-            </button>
           )}
 
           {/* Gemini AI Assistant Toggle */}
@@ -1894,14 +2170,38 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               ? msg.senderName
               : contactNameOf(contacts, msg.senderId, '', msg.senderName);
 
+            // 카톡식 안 읽음 수: 내가 보낸 메시지를 아직 읽지 않은 "다른 멤버" 수
+            const unreadCount = (() => {
+              if (!isMine || !msg.createdAt) return 0;
+              if (msg.deliveryStatus === 'failed' || msg.deliveryStatus === 'sending') return 0;
+              const memberIds = Array.isArray(space.memberIds) ? space.memberIds.filter(Boolean) : [];
+              const others = memberIds.filter(
+                (id) => id !== currentUser.id && allUsers.some((u) => u.id === id)
+              );
+              if (others.length === 0) return 0;
+              return others.filter((id) => (readMap[id]?.at || 0) < msg.createdAt!).length;
+            })();
+
             return (
               <div
                 key={msg.id}
                 id={`msg-${msg.id}`}
-                className={`group flex items-start gap-3 transition-colors rounded-2xl p-2 -mx-2 ${
+                onPointerDown={(e) => handleMessagePointerDown(e, msg)}
+                onPointerMove={handleMessagePointerMove}
+                onPointerUp={handleMessagePointerEnd}
+                onPointerCancel={handleMessagePointerEnd}
+                onPointerLeave={handleMessagePointerEnd}
+                onClickCapture={handleMessageClickCapture}
+                onContextMenu={deviceType === 'desktop' ? undefined : (e) => e.preventDefault()}
+                data-touch-actions={touchActionTarget?.id === msg.id ? 'open' : undefined}
+                className={`nx-msg-row group flex items-start gap-3 rounded-2xl p-2 -mx-2 transition-[background-color,box-shadow,transform] duration-200 ${
                   isMine ? 'flex-row-reverse' : ''
                 } ${
-                  isHighlighted ? 'bg-[#FFF9F2] ring-2 ring-[#C18C5D]' : 'hover:bg-[#FDFBF7]/60'
+                  touchActionTarget?.id === msg.id && touchActionMessage
+                    ? 'bg-[#FFF9F2] ring-1 ring-[#C18C5D]/40'
+                    : isHighlighted
+                      ? 'bg-[#FFF9F2] ring-2 ring-[#C18C5D]'
+                      : 'hover:bg-[#FDFBF7]/60'
                 }`}
               >
                 <img
@@ -2089,6 +2389,57 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                           {msg.attachments.map((att) => renderAttachment(att, msg.id))}
                         </div>
                       )}
+
+                      {/* 카톡식 안 읽음 수 — 내 말풍선 왼쪽 아래에 작게 표시 (모두 읽었으면 숨김) */}
+                      {isMine && unreadCount > 0 && (
+                        <span
+                          data-testid={`unread-count-${msg.id}`}
+                          title={`${unreadCount}명이 아직 읽지 않았습니다`}
+                          className="absolute -left-4 bottom-1 text-[10px] font-bold leading-none text-[#C18C5D] select-none"
+                        >
+                          {unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 전송 실패 표시 — 조용히 넘기지 않고 재전송/삭제를 바로 제공합니다. */}
+                  {isMine && msg.deliveryStatus === 'failed' && (
+                    <div
+                      data-testid={`failed-badge-${msg.id}`}
+                      className={`flex items-center gap-1.5 mt-1.5 text-[10px] font-bold text-[#DC2626] animate-in fade-in zoom-in-95 ${isMine ? 'justify-end' : ''}`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-[#DC2626] text-white flex items-center justify-center text-[10px] leading-none shrink-0">!</span>
+                      <span>전송 실패{msg.deliveryError ? ` · ${msg.deliveryError}` : ''}</span>
+                      {onRetryMessage && (
+                        <button
+                          type="button"
+                          onClick={() => onRetryMessage(msg.id)}
+                          data-testid={`retry-${msg.id}`}
+                          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg bg-[#FEF2F2] border border-[#FCA5A5] hover:bg-[#FEE2E2] text-[#B91C1C] cursor-pointer"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" />
+                          재전송
+                        </button>
+                      )}
+                      {onDiscardMessage && (
+                        <button
+                          type="button"
+                          onClick={() => onDiscardMessage(msg.id)}
+                          data-testid={`discard-${msg.id}`}
+                          className="px-1.5 py-0.5 rounded-lg bg-white border border-[#EBE5DA] hover:bg-[#F4EFE6] text-[#7A6A5C] cursor-pointer"
+                        >
+                          삭제
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 전송 중 표시 */}
+                  {isMine && msg.deliveryStatus === 'sending' && (
+                    <div className="flex items-center gap-1 mt-1 text-[10px] text-[#A89A8E] font-semibold justify-end">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#A89A8E] animate-pulse" />
+                      보내는 중…
                     </div>
                   )}
 
@@ -2115,17 +2466,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                       );
                     })}
 
-                    {/* Inline + Button to add emoji reaction */}
-                    <button
-                      type="button"
-                      onClick={() => setActiveEmojiPickerMessageId(activeEmojiPickerMessageId === msg.id ? null : msg.id)}
-                      className="flex items-center justify-center w-6 h-5 rounded-full text-xs border border-dashed border-[#DCD3C5] text-[#7A6A5C] hover:text-[#3E2723] hover:border-[#C18C5D] hover:bg-[#F4EFE6] transition-all cursor-pointer"
-                      title="이모티콘 반응 추가"
-                    >
-                      <Smile className="w-3 h-3" />
-                    </button>
-
-                    {/* Emoji Reaction Popover Palette - Portal로 표시해 스크롤 영역에 잘리지 않음 */}
+                    {/* 반응 추가 버튼 — 메시지당 정확히 1개만 노출합니다. (중복 버튼 제거) */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -2142,7 +2483,13 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                         setActiveEmojiPickerMessageId(msg.id);
                       }}
                       data-testid={`reaction-picker-${msg.id}`}
-                      className="flex items-center justify-center w-6 h-5 rounded-full text-xs border border-dashed border-[#DCD3C5] text-[#7A6A5C] hover:text-[#3E2723] hover:border-[#C18C5D] hover:bg-[#F4EFE6] transition-all cursor-pointer"
+                      aria-label="이모티콘 반응 추가"
+                      aria-expanded={activeEmojiPickerMessageId === msg.id}
+                      className={`flex items-center justify-center w-7 h-6 sm:w-6 sm:h-5 rounded-full text-xs border border-dashed transition-all cursor-pointer ${
+                        activeEmojiPickerMessageId === msg.id
+                          ? 'border-[#C18C5D] text-[#3E2723] bg-[#F4EFE6]'
+                          : 'border-[#DCD3C5] text-[#7A6A5C] hover:text-[#3E2723] hover:border-[#C18C5D] hover:bg-[#F4EFE6]'
+                      }`}
                       title="이모티콘 반응 추가"
                     >
                       <Smile className="w-3 h-3" />
@@ -2162,7 +2509,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 </div>
 
                 {/* Message Hover Actions Toolbar (Desktop) */}
-                <div style={isRedacted ? { display: 'none' } : undefined} className="opacity-0 group-hover:opacity-100 sm:flex hidden items-center gap-0.5 bg-white border border-[#EBE5DA] p-1 rounded-xl cafe-shadow transition-opacity flex-shrink-0 relative">
+                <div style={isRedacted ? { display: 'none' } : undefined} className="nx-msg-actions opacity-0 group-hover:opacity-100 sm:flex hidden items-center gap-0.5 bg-white border border-[#EBE5DA] p-1 rounded-xl cafe-shadow flex-shrink-0 relative">
                   {/* Quick Emojis */}
                   {REACTION_EMOJI_PALETTE.slice(0, 3).map((emoji) => (
                     <button
@@ -2176,15 +2523,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     </button>
                   ))}
 
-                  {/* Emoji Picker Button */}
-                  <button
-                    type="button"
-                    onClick={() => setActiveEmojiPickerMessageId(activeEmojiPickerMessageId === msg.id ? null : msg.id)}
-                    className="p-1 hover:bg-[#F4EFE6] rounded-lg text-[#7A6A5C] hover:text-[#3E2723] cursor-pointer"
-                    title="이모티콘 반응 선택"
-                  >
-                    <Smile className="w-3.5 h-3.5" />
-                  </button>
+                  {/* Emoji Picker Button — 반응 버튼은 버블 옆 1곳에서만 노출합니다. */}
 
                   {/* In-line Reply Button */}
                   <button
@@ -2314,14 +2653,6 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   >
                     <Reply className="w-3.5 h-3.5" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveEmojiPickerMessageId(activeEmojiPickerMessageId === msg.id ? null : msg.id)}
-                    className="p-1 text-[#7A6A5C] hover:bg-[#F4EFE6] rounded-lg cursor-pointer"
-                    title="이모티콘 반응"
-                  >
-                    <Smile className="w-3.5 h-3.5" />
-                  </button>
                   {onDeleteMessageTracedFree && (
                     <button
                       type="button"
@@ -2343,8 +2674,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 </div>
 
                 {/* 3-dots Dropdown Menu (Slack Style Actions) */}
-                {activeMenuMessageId === msg.id && (
-                  <div className="absolute top-8 right-2 z-30 bg-white border border-[#EBE5DA] rounded-2xl cafe-shadow-lg p-1.5 min-w-[200px] text-xs animate-in fade-in zoom-in-95">
+                {menuMounted && menuTargetId === msg.id && (
+                  <div className={`absolute top-8 right-2 z-30 bg-white border border-[#EBE5DA] rounded-2xl cafe-shadow-lg p-1.5 min-w-[200px] text-xs animate-in fade-in zoom-in-95 ${
+                    activeMenuMessageId === msg.id ? '' : 'nx-pop-exit'
+                  }`}>
                     <button
                       type="button"
                       onClick={() => {
@@ -2466,24 +2799,39 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             );
           })}
 
-          {/* Sinusoidal 3-dots typing indicator */}
-          {isPeerTyping && typingPeerUser && (
-            <div className="flex items-center gap-3 p-2 animate-in fade-in duration-200">
-              <img
-                src={avatarSrc(typingPeerUser.avatar)} onError={handleAvatarError}
-                alt={typingPeerUser.name}
-                className="w-8 h-8 rounded-xl object-cover bg-white border border-[#EBE5DA] shadow-xs"
-              />
-              <div className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white border border-[#EBE5DA] cafe-shadow">
-                <span className="text-[11px] font-semibold text-[#7A6A5C]">{typingPeerUser.name}님이 입력 중</span>
-                <div className="flex items-center gap-1 ml-1 h-3">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3E2723] typing-dot-1" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3E2723] typing-dot-2" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3E2723] typing-dot-3" />
+          {/* 실시간 3-dot 타이핑 인디케이터 — 다른 참여자가 입력 중일 때 떠오릅니다. */}
+          <div
+            data-testid="typing-indicator"
+            data-state={typingPeers.length > 0 ? 'typing' : 'idle'}
+            className={`overflow-hidden transition-all duration-300 ${typingPeers.length > 0 ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'}`}
+            aria-live="polite"
+          >
+            {typingPeersPresence && typingPeers.length > 0 && (
+              <div className="flex items-center gap-3 p-2 animate-in fade-in duration-200">
+                <img
+                  src={avatarSrc(
+                    allUsers.find((u) => u.id === typingPeers[0].uid)?.avatar,
+                    typingPeers[0].name
+                  )}
+                  onError={handleAvatarError}
+                  alt={typingPeers[0].name}
+                  className="w-8 h-8 rounded-xl object-cover bg-white border border-[#EBE5DA] shadow-xs"
+                />
+                <div className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white border border-[#EBE5DA] cafe-shadow">
+                  <span className="text-[11px] font-semibold text-[#7A6A5C]">
+                    {typingPeers.length === 1
+                      ? `${typingPeers[0].name}님이 입력 중`
+                      : `${typingPeers[0].name} 외 ${typingPeers.length - 1}명이 입력 중`}
+                  </span>
+                  <div className="flex items-center gap-1 ml-1 h-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#3E2723] typing-dot-1" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#3E2723] typing-dot-2" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#3E2723] typing-dot-3" />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div ref={messagesEndRef} />
         </div>
@@ -2526,23 +2874,6 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             </div>
           </aside>
         )}
-      </div>
-
-      {/* SMART REPLIES CHIPS */}
-      <div className="px-4 sm:px-6 py-1.5 flex items-center gap-2 overflow-x-auto">
-        <span className="text-[10px] text-[#A89A8E] font-medium flex-shrink-0 flex items-center gap-1">
-          <Sparkles className="w-3 h-3 text-[#C18C5D]" />
-          <span>스마트 답장:</span>
-        </span>
-        {smartReplies.map((reply, idx) => (
-          <button
-            key={idx}
-            onClick={() => onSendMessage(reply)}
-            className="px-2.5 py-1 rounded-full bg-[#FFFFFF] hover:bg-[#F4EFE6] border border-[#EBE5DA] text-[11px] font-medium text-[#3E2723] transition-all cafe-shadow whitespace-nowrap cursor-pointer"
-          >
-            {reply}
-          </button>
-        ))}
       </div>
 
       {/* INPUT CONTAINER */}
@@ -2661,6 +2992,22 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               </button>
             </div>
           )}
+          {/* 오프라인 안내 — 연결이 끊기면 부드럽게 올라오고, 복구되면 자동으로 사라집니다. */}
+          <div
+            data-testid="offline-banner"
+            data-state={isOnline ? 'online' : 'offline'}
+            aria-live="polite"
+            className={`overflow-hidden transition-all duration-300 ${isOnline ? 'max-h-0 opacity-0 mb-0' : 'max-h-24 opacity-100 mb-2'}`}
+          >
+            {!isOnline && (
+              <div className="px-3 py-2 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[11px] text-[#991B1B] font-semibold flex items-start gap-2 animate-in slide-in-from-bottom-2 duration-200">
+                <WifiOff className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span className="flex-1 leading-relaxed">
+                  오프라인 상태입니다 — 지금 보내는 메시지는 전송되지 않습니다. 연결되면 메시지 옆 <strong>재전송</strong> 버튼으로 다시 보낼 수 있어요.
+                </span>
+              </div>
+            )}
+          </div>
           <div className="rounded-2xl border border-[#EBE5DA] bg-white focus-within:border-[#C18C5D] transition-all cafe-shadow">
             {/* Active Reply Banner */}
             {activeReplyTarget && (
@@ -2687,7 +3034,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               <textarea
                 ref={textareaRef}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  publishTyping(e.target.value.trim().length > 0);
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder="메시지 입력... (/ 로 슬래시 커맨드, Enter 전송, ↑ 이전 메시지 수정)"
                 rows={2}
@@ -2837,7 +3187,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     data-testid="emoji-picker-button"
                     aria-expanded={showEmojiPicker}
                   >
-                    <Smile className="w-4 h-4" />
+                    <SmilePlus className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -2866,13 +3216,16 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       </div>
 
       {/* 이모티콘 피커 (Portal: 어떤 스크롤/오버플로 영역에도 잘리지 않음) */}
-      {showEmojiPicker &&
+      {composerEmojiMounted &&
         createPortal(
           <div
             ref={emojiPanelRef}
             data-testid="emoji-picker-panel"
+            data-state={showEmojiPicker ? 'open' : 'closed'}
             style={{ position: 'fixed', left: emojiPanelPos.left, bottom: emojiPanelPos.bottom }}
-            className="w-72 max-w-[calc(100vw-16px)] bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-2xl z-[120] animate-in fade-in zoom-in-95"
+            className={`w-72 max-w-[calc(100vw-16px)] bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-2xl z-[120] animate-in fade-in zoom-in-95 ${
+              showEmojiPicker ? '' : 'nx-pop-exit'
+            }`}
           >
             <div className="pb-1.5 mb-1.5 border-b border-[#EBE5DA] flex items-center justify-between text-[11px] font-bold text-[#5C5046]">
               <span>이모티콘</span>
@@ -2897,14 +3250,134 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
           document.body
         )}
 
+      {/* 터치 롱프레스 액션 시트 (모바일·태블릿에서 메시지를 꾹 누르면 올라옵니다) */}
+      {touchSheet.mounted && touchActionTarget &&
+        createPortal(
+          <div className="fixed inset-0 z-[140]" role="dialog" aria-modal="true" aria-label="메시지 빠른 작업">
+        <div
+          onClick={(event) => {
+            // 방금 열린 직후 발생한 합성 클릭(손을 떼는 순간)으로 바로 닫히지 않게 합니다.
+            if (Date.now() - touchSheetOpenedAtRef.current < 350) {
+              event.preventDefault();
+              return;
+            }
+            closeTouchActionSheet();
+          }}
+          onPointerDown={(event) => {
+            if (Date.now() - touchSheetOpenedAtRef.current < 350) return;
+            closeTouchActionSheet();
+          }}
+          className={`absolute inset-0 bg-black/40 backdrop-blur-[1px] ${touchSheet.visible ? 'opacity-100' : 'opacity-0'}`}
+          style={{ transition: 'opacity 300ms cubic-bezier(0.22, 1, 0.36, 1)' }}
+        />
+            <div
+              data-testid="touch-action-sheet"
+              data-state={touchActionMessage ? 'open' : 'closed'}
+              className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-lg bg-white border-t border-[#EBE5DA] rounded-t-3xl shadow-2xl px-3.5 pt-2.5 pb-[max(0.9rem,env(safe-area-inset-bottom))]"
+              style={{
+                transform: touchSheet.visible ? 'translate3d(0, 0, 0)' : 'translate3d(0, 100%, 0)',
+                transition: 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)',
+                willChange: 'transform',
+              }}
+            >
+              <div className="mx-auto mb-2.5 h-1.5 w-10 rounded-full bg-[#DCD3C5]" />
+
+              <div className="flex items-center gap-2.5 px-1 pb-2.5 border-b border-[#EBE5DA]">
+                <img
+                  src={avatarSrc(touchActionTarget.senderAvatar, touchActionTarget.senderName)}
+                  onError={handleAvatarError}
+                  alt=""
+                  className="w-8 h-8 rounded-xl object-cover bg-white border border-[#EBE5DA] flex-shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-[#2C2520] truncate">
+                    {touchActionTarget.senderId === currentUser.id
+                      ? touchActionTarget.senderName
+                      : contactNameOf(contacts, touchActionTarget.senderId, '', touchActionTarget.senderName)}
+                  </div>
+                  <div className="text-[11px] text-[#7A6A5C] truncate">
+                    {touchActionTarget.content || '첨부 메시지'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeTouchActionSheet}
+                  className="p-1.5 rounded-lg text-[#A89A8E] hover:text-[#2C2520] hover:bg-[#F4EFE6] cursor-pointer shrink-0"
+                  aria-label="닫기"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* 빠른 반응 */}
+              <div className="flex items-center justify-between gap-1 py-2.5">
+                <div className="flex items-center gap-1">
+                  {REACTION_EMOJI_PALETTE.slice(0, 7).map((emoji, index) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => runFromTouchSheet(() => onToggleReaction(touchActionTarget.id, emoji))}
+                      data-testid={`touch-reaction-${emoji}`}
+                      className="w-9 h-9 rounded-xl hover:bg-[#F4EFE6] active:scale-90 text-lg flex items-center justify-center cursor-pointer"
+                      style={{ animation: `nxEnter 260ms cubic-bezier(0.22, 1, 0.36, 1) ${index * 22}ms both` }}
+                      title={`${emoji} 반응`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    runFromTouchSheet(() => {
+                      setReactionPanelPos({
+                        left: Math.max(8, (window.innerWidth - 252) / 2),
+                        top: Math.max(72, window.innerHeight - 430),
+                      });
+                      setActiveEmojiPickerMessageId(touchActionTarget.id);
+                    })
+                  }
+                  className="px-2.5 py-1.5 rounded-xl border border-[#DCD3C5] text-[11px] font-bold text-[#5C5046] hover:bg-[#F4EFE6] cursor-pointer shrink-0"
+                >
+                  더보기
+                </button>
+              </div>
+
+              {/* 전체 액션 */}
+              <div className="grid grid-cols-4 gap-1.5">
+                {buildTouchSheetActions(touchActionTarget).map((action) => (
+                  <button
+                    key={action.key}
+                    type="button"
+                    onClick={() => runFromTouchSheet(action.run)}
+                    data-testid={`touch-action-${action.key}`}
+                    className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl border transition-all cursor-pointer active:scale-95 ${
+                      action.danger
+                        ? 'border-[#FCA5A5]/60 bg-[#FEF2F2] text-[#B91C1C] hover:bg-[#FEE2E2]'
+                        : 'border-[#EBE5DA] bg-[#FDFBF7] text-[#3E2723] hover:bg-[#F4EFE6]'
+                    }`}
+                  >
+                    {action.icon}
+                    <span className="text-[10px] font-bold">{action.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
       {/* 반응 이모지 피커 (Portal) */}
-      {activeEmojiPickerMessageId &&
+      {reactionPickerMounted && reactionTargetId &&
         createPortal(
           <div
             ref={reactionPanelRef}
             data-testid="reaction-picker-panel"
+            data-state={activeEmojiPickerMessageId ? 'open' : 'closed'}
             style={{ position: 'fixed', left: reactionPanelPos.left, top: reactionPanelPos.top }}
-            className="w-64 max-w-[calc(100vw-16px)] bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-2xl z-[120] animate-in fade-in zoom-in-95"
+            className={`w-64 max-w-[calc(100vw-16px)] bg-white border border-[#EBE5DA] rounded-2xl p-2.5 shadow-2xl z-[120] animate-in fade-in zoom-in-95 ${
+              activeEmojiPickerMessageId ? '' : 'nx-pop-exit'
+            }`}
           >
             <div className="pb-1.5 mb-1.5 border-b border-[#EBE5DA] flex items-center justify-between text-[10px] font-bold text-[#5C5046]">
               <span>반응 남기기</span>
@@ -2918,7 +3391,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   key={emoji}
                   type="button"
                   onClick={() => {
-                    onToggleReaction(activeEmojiPickerMessageId, emoji);
+                    if (reactionTargetId) onToggleReaction(reactionTargetId, emoji);
                     setActiveEmojiPickerMessageId(null);
                   }}
                   data-testid={`reaction-option-${emoji}`}

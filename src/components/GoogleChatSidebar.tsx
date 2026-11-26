@@ -18,7 +18,11 @@ import {
   PanelLeftClose,
   Mail,
   HardDrive,
-  Settings
+  Settings,
+  NotebookPen,
+  ContactRound,
+  MessageSquarePlus,
+  UserCog
 } from 'lucide-react';
 import { Space, User } from '../types';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
@@ -176,7 +180,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
           >
             <div className="flex items-center gap-2.5 truncate">
               <div className="w-6 h-6 rounded-lg bg-[#E6DCD0] flex items-center justify-center text-[#3E2723] flex-shrink-0">
-                <Bookmark className="w-3.5 h-3.5" />
+                <NotebookPen className="w-3.5 h-3.5" />
               </div>
               <div className="text-left truncate">
                 <div className="truncate font-bold">나의 메모장 (나와 대화하기)</div>
@@ -197,7 +201,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               className="flex items-center justify-center gap-1.5 p-2 rounded-xl bg-[#FDFBF7] hover:bg-[#FFFFFF] border border-[#EBE5DA] transition-all text-[11px] font-semibold text-[#5C5046]"
               title="연락처 별명 관리"
             >
-              <Users className="w-3.5 h-3.5 text-[#C18C5D]" />
+              <ContactRound className="w-3.5 h-3.5 text-[#C18C5D]" />
               <span className="truncate">연락처{contacts.length > 0 ? ` ${contacts.length}` : ''}</span>
             </button>
           )}
@@ -319,7 +323,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
                 className="p-1 rounded-lg hover:bg-[#EBE5DA] text-[#5C5046] hover:text-[#2C2520] transition-colors"
                 title="친구와 새 대화 시작"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <MessageSquarePlus className="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -528,7 +532,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               className="p-1.5 rounded-xl text-[#7A6A5C] hover:text-[#3E2723] hover:bg-[#F4EFE6] transition-colors"
               title="계정 1초 전환 (새로고침 불필요)"
             >
-              <Users className="w-3.5 h-3.5" />
+              <UserCog className="w-3.5 h-3.5" />
             </button>
 
             {/* Direct Instant Logout */}

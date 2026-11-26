@@ -88,6 +88,10 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: 'forest', name: '포레스트 그린', desc: '차분한 숲의 초록', swatch: ['#0C1A14', '#14291F', '#3FBF7F'] },
   { id: 'sunset', name: '선셋', desc: '따뜻한 코랄 오렌지', swatch: ['#FFF6F0', '#FFE7D8', '#F97316'] },
   { id: 'dark', name: '다크', desc: '눈이 편한 순수 다크', swatch: ['#0E0F12', '#181A1F', '#4F8CFF'] },
+  { id: 'space', name: '우주 (코스모스)', desc: '별이 흐르는 밤하늘 · 유성우', swatch: ['#070B1A', '#101A33', '#8FA8FF'] },
+  { id: 'aurora', name: '오로라', desc: '은은하게 일렁이는 오로라', swatch: ['#06121A', '#0D2029', '#67E8C3'] },
+  { id: 'cat', name: '고양이', desc: '말랑한 크림톤 · 고양이 낙서', swatch: ['#FFF8F3', '#FFFFFF', '#D08A5A'] },
+  { id: 'astro', name: '우주비행사', desc: '달과 별 · 맑은 하늘색', swatch: ['#F4F7FC', '#FFFFFF', '#5C7CFA'] },
 ];
 
 /** 테마별 기본 말풍선 색 (사용자가 직접 고른 색이 있으면 그 색이 우선) */
@@ -104,6 +108,10 @@ export const THEME_BUBBLE_DEFAULTS: Record<string, { mine: string; other: string
   forest: { mine: '#1E7A50', other: '#F2FBF6' },
   sunset: { mine: '#F97316', other: '#FFF7F1' },
   dark: { mine: '#2F6FE4', other: '#22252C' },
+  space: { mine: '#4F6BFF', other: '#16213F' },
+  aurora: { mine: '#2FB79A', other: '#10303A' },
+  cat: { mine: '#E2A075', other: '#FFFFFF' },
+  astro: { mine: '#5C7CFA', other: '#FFFFFF' },
 };
 
 export const BUBBLE_PRESETS = [

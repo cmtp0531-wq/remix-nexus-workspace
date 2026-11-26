@@ -22,6 +22,7 @@ import { GoogleChatSidebar } from './components/GoogleChatSidebar';
 import { GoogleChatMain } from './components/GoogleChatMain';
 import { ThreadPanel, SideBySideDocEditor, TasksPanel } from './components/RightPanels';
 import { SnowFall } from './components/SnowFall';
+import { CosmicSky } from './components/CosmicSky';
 import { 
   DrivePickerModal, 
   CalendarEventModal, 
@@ -39,6 +40,7 @@ import { MeetingRoom, createNewMeetingRoom, joinMeetingRoom } from './services/m
 import {
   Contact,
   loadContacts,
+  adoptContactsForOwner,
   upsertContact,
   renameContact,
   removeContact,
@@ -69,6 +71,9 @@ import {
   subscribeToCloudChatMessages,
   saveUserProfileToFirestore,
   subscribeToCloudUsers,
+  saveFriendRequestToFirestore,
+  updateFriendRequestStatusInFirestore,
+  subscribeToFriendRequests,
   isGoogleSignedIn
 } from './services/googleWorkspace';
 import { isFirebaseConfigured, onSettingsChanged } from './services/appConfig';
@@ -83,6 +88,15 @@ import {
 } from './services/googleWorkspace';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { avatarSrc, handleAvatarError } from './components/UserAvatar';
+
+/** 사이드바 모션 길이(ms). 열림·닫힘·접힘이 같은 리듬을 쓰도록 한 곳에서 관리합니다. */
+const SIDEBAR_MOTION_MS = 420;
+/** 가속 후 끝에서 부드럽게 감속하는 애플 스타일 커브. */
+const NX_EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const SIDEBAR_TRANSITION = `width ${SIDEBAR_MOTION_MS}ms ${NX_EASE_OUT}, translate ${SIDEBAR_MOTION_MS}ms ${NX_EASE_OUT}, opacity ${Math.round(
+  SIDEBAR_MOTION_MS * 0.7,
+)}ms ${NX_EASE_OUT}`;
+const BACKDROP_TRANSITION = `opacity ${Math.round(SIDEBAR_MOTION_MS * 0.8)}ms ${NX_EASE_OUT}`;
 
 export default function App() {
   return (
@@ -146,6 +160,21 @@ function WorkspaceApp() {
   const [isYouTubeSplitOpen, setIsYouTubeSplitOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  // 네트워크 상태: 오프라인이면 전송 실패를 숨기지 않고 표시합니다.
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  );
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
   // Device type detection ('mobile' | 'tablet' | 'desktop')
   const [deviceType, setDeviceType] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
 
@@ -174,22 +203,97 @@ function WorkspaceApp() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   // 닫힐 때도 미끄러져 들어가도록, 닫힘 애니메이션이 끝날 때까지는 DOM 에 남겨둡니다.
   const [isMobileSidebarMounted, setIsMobileSidebarMounted] = useState(false);
+  // 열림 상태와 실제 표시 상태를 분리해, DOM 에 처음 붙는 프레임은 '닫힌 위치'로 그린 뒤
+  // 다음 프레임에 '열린 위치'로 바꿔야 슬라이드 모션이 끊기지 않고 재생됩니다.
+  const [isMobileSidebarVisible, setIsMobileSidebarVisible] = useState(false);
   useEffect(() => {
     if (isMobileSidebarOpen) {
       setIsMobileSidebarMounted(true);
-      return;
+      let second = 0;
+      const first = window.requestAnimationFrame(() => {
+        second = window.requestAnimationFrame(() => setIsMobileSidebarVisible(true));
+      });
+      return () => {
+        window.cancelAnimationFrame(first);
+        window.cancelAnimationFrame(second);
+      };
     }
-    const timer = window.setTimeout(() => setIsMobileSidebarMounted(false), 420);
+    setIsMobileSidebarVisible(false);
+    const timer = window.setTimeout(() => setIsMobileSidebarMounted(false), SIDEBAR_MOTION_MS + 40);
     return () => window.clearTimeout(timer);
   }, [isMobileSidebarOpen]);
 
   // 연락처: 계정이 바뀌면 그 계정의 연락처를 불러오고, 로그인 상태면 Firestore 와 동기화합니다.
   useEffect(() => {
     const ownerId = currentUser?.id || 'guest';
-    setContacts(loadContacts(ownerId));
+    // 게스트로 저장한 연락처가 로그인 후 사라지지 않도록 주체가 바뀔 때 옮겨 담습니다.
+    setContacts(adoptContactsForOwner(ownerId));
     if (!auth?.currentUser || auth.currentUser.uid !== ownerId) return;
     return subscribeCloudContacts(ownerId, (next) => setContacts(next));
   }, [currentUser?.id]);
+
+  // 친구 요청: 서버에 저장된 요청을 실시간으로 받아와 로컬 목록과 합칩니다.
+  useEffect(() => {
+    if (!auth?.currentUser || auth.currentUser.uid !== currentUser?.id) return;
+    const mergeCloudRequest = (cloud: any) =>
+      setFriendRequests((prev) => {
+        if (!cloud?.id) return prev;
+        const nextStatus =
+          cloud.status === 'accepted' || cloud.status === 'rejected' ? cloud.status : 'pending';
+        const existing = prev.find((r) => r.id === String(cloud.id));
+        let next: FriendRequest[];
+        if (!existing) {
+          next = [{ ...(cloud as FriendRequest), id: String(cloud.id), status: nextStatus }, ...prev];
+        } else if (existing.status !== nextStatus) {
+          next = prev.map((r) => (r.id === existing.id ? { ...r, status: nextStatus } : r));
+        } else {
+          return prev;
+        }
+        storage.saveFriendRequests(next);
+        return next;
+      });
+
+    const toUserId = currentUser.id;
+    const unsubscribeIncoming = subscribeToFriendRequests(currentUser.id, 'toUserId', (list) => {
+      list.forEach(mergeCloudRequest);
+    });
+    const unsubscribeOutgoing = subscribeToFriendRequests(toUserId, 'fromUserId', (list) => {
+      list.forEach(mergeCloudRequest);
+    });
+    return () => {
+      unsubscribeIncoming();
+      unsubscribeOutgoing();
+    };
+  }, [currentUser?.id]);
+
+  // 상대가 요청을 수락하면 보낸 사람 쪽에도 친구 관계가 만들어집니다.
+  useEffect(() => {
+    if (!currentUser) return;
+    const accepted = friendRequests.filter(
+      (r) => r.status === 'accepted' && (r.fromUserId === currentUser.id || r.toUserId === currentUser.id)
+    );
+    if (accepted.length === 0) return;
+    const missing = accepted.filter(
+      (r) =>
+        !friendships.some(
+          (f) =>
+            (f.user1Id === r.fromUserId && f.user2Id === r.toUserId) ||
+            (f.user1Id === r.toUserId && f.user2Id === r.fromUserId)
+        )
+    );
+    if (missing.length === 0) return;
+    const next = [
+      ...friendships,
+      ...missing.map((r) => ({
+        id: `friendship_${r.id}`,
+        user1Id: r.fromUserId,
+        user2Id: r.toUserId,
+        createdAt: new Date().toISOString(),
+      })),
+    ];
+    storage.saveFriendships(next);
+    setFriendships(next);
+  }, [friendRequests, friendships, currentUser]);
 
   // /remind 명령: 브라우저 알림 리마인더 예약 (새로고침해도 유지)
   const [reminders, setReminders] = useState<Array<{ id: string; text: string; at: number }>>(() => {
@@ -575,11 +679,69 @@ function WorkspaceApp() {
   };
 
   // SEND MESSAGE
+  /** 메시지 1건의 전송 상태만 갈아끼웁니다 (localStorage + 화면 상태 동시 반영). */
+  const patchMessage = (spaceId: string, messageId: string, patch: Partial<Message>) => {
+    const current = storage.getMessages();
+    const list = current[spaceId] || [];
+    if (!list.some((m) => m.id === messageId)) return;
+    const nextMap = {
+      ...current,
+      [spaceId]: list.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+    };
+    storage.saveMessages(nextMap);
+    setMessagesMap(nextMap);
+  };
+
+  /** 서버 전송을 다시 시도합니다 (오프라인/전송 실패 메시지). */
+  const handleRetryMessage = async (messageId: string) => {
+    const target = (storage.getMessages()[activeSpaceId] || []).find((m) => m.id === messageId);
+    if (!target) return;
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+    const signedIn = Boolean(auth?.currentUser && auth.currentUser.uid === currentUser.id);
+
+    if (!online) {
+      patchMessage(activeSpaceId, messageId, {
+        deliveryStatus: 'failed',
+        deliveryError: '아직 오프라인입니다. 연결되면 다시 시도해 주세요.',
+      });
+      return;
+    }
+
+    if (!signedIn) {
+      // 게스트 모드는 기기에만 저장됩니다. 연결이 돌아오면 더 보낼 곳이 없으므로 로컬 전송 완료로 정리합니다.
+      patchMessage(activeSpaceId, messageId, { deliveryStatus: 'sent', deliveryError: undefined });
+      return;
+    }
+
+    patchMessage(activeSpaceId, messageId, { deliveryStatus: 'sending', deliveryError: undefined });
+    try {
+      await saveCloudChatMessage(activeSpaceId, target);
+      patchMessage(activeSpaceId, messageId, { deliveryStatus: 'sent', deliveryError: undefined });
+    } catch (error) {
+      console.error('재전송 실패:', error);
+      patchMessage(activeSpaceId, messageId, {
+        deliveryStatus: 'failed',
+        deliveryError: '서버 전송에 실패했습니다.',
+      });
+    }
+  };
+
+  /** 전송 실패한 메시지를 이 기기에서 버립니다. */
+  const handleDiscardMessage = (messageId: string) => {
+    const current = storage.getMessages();
+    const list = current[activeSpaceId] || [];
+    const nextMap = { ...current, [activeSpaceId]: list.filter((m) => m.id !== messageId) };
+    storage.saveMessages(nextMap);
+    setMessagesMap(nextMap);
+  };
+
   const handleSendMessage = (content: string, attachments?: Attachment[], replyTo?: MessageReplyContext) => {
     const now = new Date();
     const timeStr = `${now.getHours() >= 12 ? '오후' : '오전'} ${(now.getHours() % 12 || 12)
       .toString()
       .padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+    const signedIn = Boolean(auth?.currentUser && auth.currentUser.uid === currentUser.id);
 
     const newMsg: Message = {
       id: `msg_${Date.now()}`,
@@ -595,6 +757,9 @@ function WorkspaceApp() {
       repliesCount: 0,
       replies: [],
       replyTo,
+      createdAt: now.getTime(),
+      deliveryStatus: online ? (signedIn ? 'sending' : 'sent') : 'failed',
+      deliveryError: online ? undefined : '오프라인 상태라 전송되지 않았습니다.',
     };
 
     const nextMessages = {
@@ -604,11 +769,18 @@ function WorkspaceApp() {
 
     storage.saveMessages(nextMessages);
     setMessagesMap(nextMessages);
-    if (auth?.currentUser?.uid === currentUser.id) {
-      void saveCloudChatMessage(activeSpaceId, newMsg).catch((error) => {
-        console.error('Could not send chat message to Firestore:', error);
-        console.warn('메시지는 이 기기에 남아 있지만, Firestore 권한 또는 연결 문제로 다른 사용자에게 전송되지 않았을 수 있습니다.');
-      });
+    if (!online) {
+      console.warn('[전송 실패] 오프라인 상태입니다. 연결되면 재전송할 수 있습니다.');
+    } else if (signedIn) {
+      void saveCloudChatMessage(activeSpaceId, newMsg)
+        .then(() => patchMessage(activeSpaceId, newMsg.id, { deliveryStatus: 'sent', deliveryError: undefined }))
+        .catch((error) => {
+          console.error('Could not send chat message to Firestore:', error);
+          patchMessage(activeSpaceId, newMsg.id, {
+            deliveryStatus: 'failed',
+            deliveryError: '서버 전송에 실패했습니다.',
+          });
+        });
     }
 
     // Real Gemini AI Assistant in-chat reply
@@ -1202,9 +1374,16 @@ function WorkspaceApp() {
       timestamp: '방금 전',
     };
 
-    const nextRequests = [newReq, ...friendRequests];
+    const nextRequests = [
+      newReq,
+      ...friendRequests.filter(
+        (r) => !(r.fromUserId === newReq.fromUserId && r.toUserId === newReq.toUserId && r.status === 'pending')
+      ),
+    ];
     storage.saveFriendRequests(nextRequests);
     setFriendRequests(nextRequests);
+    // 다른 기기/상대 계정에도 저장되도록 서버에도 남깁니다.
+    void saveFriendRequestToFirestore(newReq as unknown as Record<string, unknown>);
   };
 
   const handleAcceptFriendRequest = (request: FriendRequest) => {
@@ -1214,6 +1393,7 @@ function WorkspaceApp() {
     );
     storage.saveFriendRequests(updatedRequests);
     setFriendRequests(updatedRequests);
+    void updateFriendRequestStatusInFirestore(request.id, 'accepted');
 
     // 2. Add friendship record
     const newFriendship: Friendship = {
@@ -1278,6 +1458,7 @@ function WorkspaceApp() {
     );
     storage.saveFriendRequests(updatedRequests);
     setFriendRequests(updatedRequests);
+    void updateFriendRequestStatusInFirestore(request.id, 'rejected');
   };
 
   const handleStartDmWithFriend = (friendUser: User) => {
@@ -1688,6 +1869,9 @@ function WorkspaceApp() {
       activeTab={activeTab === 'tasks' ? 'tasks' : 'chat'}
       onTabChange={setActiveTab}
       onSendMessage={handleSendMessage}
+      isOnline={isOnline}
+      onRetryMessage={handleRetryMessage}
+      onDiscardMessage={handleDiscardMessage}
       onOpenThread={(msg) => {
         setActiveThreadMessage(msg);
         setActiveDocEditor(null);
@@ -1860,6 +2044,8 @@ function WorkspaceApp() {
     <div className="nx-app-bg flex h-[100dvh] w-full max-w-full overflow-hidden bg-[#FDFBF7] text-[#2C2520] font-sans antialiased selection:bg-[#E6DCD0] selection:text-[#3E2723] relative">
       {/* 겨울 감성 · 크리스마스 테마의 눈 내리는 모션 (클릭 방해 없음) */}
       <SnowFall />
+      {/* 우주 · 오로라 테마의 배경 모션 (유성우·오로라) */}
+      <CosmicSky />
       {/* Real Floating Notification Toasts (Works on Tablet, Phone, Laptop) */}
       <div className="fixed top-3 right-3 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
         {inAppNotifs.map((notif) => (
@@ -1891,7 +2077,7 @@ function WorkspaceApp() {
       />
 
       {/* Google 로그인 오류 / 게스트 안내 배너 (화면 상단 고정) */}
-      <div className="fixed bottom-24 sm:bottom-28 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pointer-events-none">
+      <div className="nx-guest-banner fixed top-14 sm:top-auto sm:bottom-28 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pointer-events-none">
         {authError && (
           <div className="pointer-events-auto w-full max-w-md px-4 py-2.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold flex items-start gap-2 shadow-lg nx-fade-in">
             <span className="flex-1 leading-relaxed">{authError}</span>
@@ -1939,20 +2125,24 @@ function WorkspaceApp() {
 
       {/* 1. Left Sidebar (Google Chat in Cafe Beige theme) - Collapsible on demand */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] md:static md:z-auto md:w-auto md:max-w-none ${
-          isSidebarCollapsed ? 'md:hidden' : 'md:flex'
-        } ${
-          isMobileSidebarOpen
+        className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] md:static md:z-auto md:max-w-none md:overflow-hidden ${
+          isMobileSidebarVisible
             ? 'translate-x-0 opacity-100 shadow-2xl md:shadow-none'
-            : '-translate-x-full opacity-0 pointer-events-none md:translate-x-0 md:opacity-100 md:pointer-events-auto'
+            : '-translate-x-full opacity-0 pointer-events-none md:translate-x-0 md:opacity-100'
+        } ${
+          isSidebarCollapsed
+            ? 'md:w-0 md:pointer-events-none'
+            : 'md:w-72 md:pointer-events-auto'
         }`}
-        style={{
-          transition:
-            'translate 400ms cubic-bezier(0.16, 1, 0.3, 1), transform 400ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)',
-          willChange: 'translate, transform, opacity',
-        }}
-        aria-hidden={!isMobileSidebarOpen}
+        style={{ transition: SIDEBAR_TRANSITION, willChange: 'width, translate, opacity' }}
+        aria-hidden={deviceType === 'mobile' ? !isMobileSidebarVisible : isSidebarCollapsed}
       >
+        <div
+          className={`w-72 flex-shrink-0 h-full flex transition-opacity duration-300 ${
+            isSidebarCollapsed ? 'md:opacity-0 md:pointer-events-none' : 'md:opacity-100'
+          }`}
+          aria-hidden={isSidebarCollapsed || undefined}
+        >
         <GoogleChatSidebar
           currentUser={currentUser}
           spaces={spaces}
@@ -1998,14 +2188,16 @@ function WorkspaceApp() {
             setIsMobileSidebarOpen(false);
           }}
         />
+        </div>
       </div>
 
       {/* Backdrop for mobile drawer */}
       {isMobileSidebarMounted && (
         <div
           onClick={() => setIsMobileSidebarOpen(false)}
-          className={`md:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-30 ${isMobileSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-          style={{ transition: 'opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+          aria-hidden
+          className={`md:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-30 ${isMobileSidebarVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          style={{ transition: BACKDROP_TRANSITION }}
         />
       )}
 
@@ -2495,6 +2687,8 @@ function WorkspaceApp() {
             await handleGoogleSignIn();
           }}
           onSignOut={handleLogout}
+          notificationsEnabled={notificationsEnabled}
+          onToggleNotifications={handleToggleNotifications}
         />
       )}
 

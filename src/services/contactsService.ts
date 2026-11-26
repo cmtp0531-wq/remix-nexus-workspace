@@ -156,6 +156,36 @@ export const removeContact = (ownerId: string, contactId: string) => {
   void deleteContactFromFirestore(ownerId, contactId);
 };
 
+/**
+ * 계정 주체가 바뀌어도(게스트 ↔ 구글 로그인) 연락처를 잃지 않도록 옮겨 담습니다.
+ * - 새 주체의 목록이 비어 있을 때만, 게스트/로컬 사본에서만 가져옵니다.
+ * - 다른 구글 계정(uid)의 목록을 가져오지는 않습니다(계정 간 유출 방지).
+ */
+export const adoptContactsForOwner = (ownerId: string): Contact[] => {
+  const own = loadContacts(ownerId);
+  if (own.length > 0) return own;
+  const key = ownerId || 'guest';
+  if (key === 'guest') return own;
+
+  const localKeys = ['guest', 'user_local_owner'];
+  const collected: Contact[] = [];
+  localKeys.forEach((legacy) => {
+    if (legacy === key) return;
+    loadContacts(legacy).forEach((contact) => {
+      const exists = collected.some(
+        (c) =>
+          (contact.userId && c.userId === contact.userId) ||
+          (contact.email && normalizeEmail(c.email) === normalizeEmail(contact.email))
+      );
+      if (!exists) collected.push(contact);
+    });
+  });
+
+  if (collected.length === 0) return own;
+  saveContacts(ownerId, collected);
+  return collected;
+};
+
 /** 로그인 사용자라면 Firestore 연락처를 병합합니다 (중복은 이름만 최신 값으로) */
 export const mergeCloudContacts = (ownerId: string, cloudContacts: any[]): Contact[] => {
   if (!Array.isArray(cloudContacts) || cloudContacts.length === 0) return loadContacts(ownerId);

@@ -15,6 +15,8 @@ import {
   Upload,
   ShieldCheck,
   Palette,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import { ThemeSettings } from './ThemeSettings';
 import { User } from '../types';
@@ -39,9 +41,12 @@ interface SettingsModalProps {
   authError: string;
   onGoogleSignIn: () => void;
   onSignOut: () => void;
+  /** 시스템 알림 수신 설정 (설정 모달 안에서만 바꿉니다) */
+  notificationsEnabled?: boolean;
+  onToggleNotifications?: () => void;
 }
 
-type TabKey = 'ai' | 'theme' | 'google' | 'data';
+type TabKey = 'ai' | 'notifications' | 'theme' | 'google' | 'data';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -52,6 +57,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   authError,
   onGoogleSignIn,
   onSignOut,
+  notificationsEnabled = true,
+  onToggleNotifications,
 }) => {
   const [tab, setTab] = useState<TabKey>('ai');
 
@@ -227,12 +234,71 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="px-5 pt-4 pb-2 flex items-center gap-2 flex-wrap" style={{ background: 'var(--nx-bg)' }}>
           <TabButton tabKey="ai" key="ai" icon={<Sparkles className="w-3.5 h-3.5" />} label="AI" />
+          <TabButton
+            tabKey="notifications"
+            key="notifications"
+            icon={<Bell className="w-3.5 h-3.5" />}
+            label="알림"
+          />
           <TabButton tabKey="theme" key="theme" icon={<Palette className="w-3.5 h-3.5" />} label="테마·색상" />
           <TabButton tabKey="google" key="google" icon={<Link2 className="w-3.5 h-3.5" />} label="Google 연동" />
           <TabButton tabKey="data" key="data" icon={<Database className="w-3.5 h-3.5" />} label="데이터" />
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4" style={{ color: 'var(--nx-text)' }}>
+          {tab === 'notifications' && (
+            <section className="space-y-3">
+              <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-[#3E2723]">
+                    {notificationsEnabled ? (
+                      <Bell className="w-4 h-4 text-[#137333]" />
+                    ) : (
+                      <BellOff className="w-4 h-4 text-[#A89A8E]" />
+                    )}
+                    시스템 알림
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onToggleNotifications}
+                    disabled={!onToggleNotifications}
+                    role="switch"
+                    aria-checked={notificationsEnabled}
+                    data-testid="settings-notifications-toggle"
+                    className={`relative w-11 h-6 rounded-full transition-all duration-300 cursor-pointer disabled:opacity-50 shrink-0 ${
+                      notificationsEnabled ? 'bg-[#3E2723]' : 'bg-[#DCD3C5]'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-300 ${
+                        notificationsEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-[12px] text-[#7A6A5C] leading-5 mt-2">
+                  새 메시지·회의·친구 요청이 도착하면 브라우저 알림과 알림음을 보냅니다. 이 설정은 이 기기에만 적용됩니다.
+                </p>
+                <p className="text-[11px] text-[#A89A8E] leading-5 mt-1.5">
+                  현재 상태: <strong className="text-[#3E2723]">{notificationsEnabled ? '알림 켜짐' : '알림 꺼짐'}</strong>
+                </p>
+              </div>
+              <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4">
+                <div className="flex items-center gap-2 font-bold text-sm text-[#3E2723]">
+                  <ShieldCheck className="w-4 h-4 text-[#8D5B4C]" />
+                  브라우저 권한
+                </div>
+                <p className="text-[12px] text-[#7A6A5C] leading-5 mt-1.5">
+                  알림을 처음 켤 때 브라우저가 권한을 요청합니다. 차단한 경우 주소창의 사이트 설정에서 알림을 허용해 주세요.
+                </p>
+                {typeof Notification !== 'undefined' && (
+                  <p className="text-[11px] mt-2 text-[#A89A8E]">
+                    권한 상태: <strong className="text-[#3E2723]">{Notification.permission === 'granted' ? '허용됨' : Notification.permission === 'denied' ? '차단됨' : '아직 묻지 않음'}</strong>
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
           {tab === 'theme' && <ThemeSettings />}
           {tab === 'ai' && (
             <section className="space-y-3">

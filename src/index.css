@@ -294,6 +294,78 @@ button, [role="button"], a.nx-press {
 }
 button:active:not(:disabled) { transform: scale(0.975); }
 
+/* ============================================================
+   등장 모션 유틸리티 (tailwindcss-animate 호환)
+   - 기존 마크업의 animate-in / fade-in / zoom-in-95 / slide-in-from-*
+     클래스가 실제로 움직이도록 최소 구현을 제공합니다.
+   ============================================================ */
+@keyframes nxEnter {
+  from {
+    opacity: var(--nx-enter-opacity, 1);
+    transform: translate3d(var(--nx-enter-x, 0), var(--nx-enter-y, 0), 0) scale(var(--nx-enter-scale, 1));
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+.animate-in {
+  animation: nxEnter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+}
+.fade-in { --nx-enter-opacity: 0; }
+.zoom-in-95 { --nx-enter-scale: 0.95; }
+.slide-in-from-top-1 { --nx-enter-y: -0.25rem; }
+.slide-in-from-top-2 { --nx-enter-y: -0.5rem; }
+.slide-in-from-bottom-2 { --nx-enter-y: 0.5rem; }
+.slide-in-from-left { --nx-enter-x: -0.9rem; }
+.slide-in-from-right { --nx-enter-x: 0.9rem; }
+
+/* 팝오버·메뉴 닫힘 모션 (닫힘 상태를 잠깐 유지한 뒤 언마운트할 때 사용) */
+@keyframes nxExit {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to { opacity: 0; transform: translate3d(0, calc(var(--nx-exit-y, 4px)), 0) scale(var(--nx-exit-scale, 0.97)); }
+}
+.nx-pop-exit { animation: nxExit 150ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
+
+/* 메시지 액션 툴바: 살짝 떠오르듯 나타납니다. */
+.nx-msg-actions {
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms ease;
+  transform: translate3d(0, 4px, 0) scale(0.98);
+}
+.group:hover .nx-msg-actions {
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+/* 말풍선: 마우스를 올리면 아주 살짝 떠오르는 정도의 피드백만 줍니다. */
+.nx-msg-bubble {
+  transition: box-shadow 240ms ease, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (hover: hover) {
+  .nx-msg-bubble:hover { box-shadow: 0 6px 18px -10px rgba(62, 39, 35, 0.35); }
+}
+
+/* 리스트·메뉴 항목: 호버 시 부드러운 배경 이동 */
+.nx-row-hover {
+  transition: background-color 160ms ease, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (hover: hover) {
+  .nx-row-hover:hover { transform: translateX(2px); }
+}
+
+/* 메시지 행: 터치에서 길게 눌러도 브라우저 콜아웃/선택이 끼어들지 않게 합니다. */
+.nx-msg-row {
+  -webkit-touch-callout: none;
+}
+@media (hover: none) {
+  .nx-msg-row,
+  .nx-msg-row * {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
 /* 모달·팝오버 공통 등장 */
 .fixed > .rounded-2xl, .fixed > .rounded-3xl { animation: nxModalPop 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 
@@ -359,6 +431,34 @@ body { min-height: 100dvh; }
   --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg stroke='%237FB4FF' stroke-width='1.6' stroke-linecap='round' opacity='0.35'%3E%3Cg transform='translate(30 30)'%3E%3Cpath d='M0 -14V14M-12 -7L12 7M-12 7L12 -7'/%3E%3Cpath d='M0 -14l-4 4M0 -14l4 4M0 14l-4-4M0 14l4-4'/%3E%3C/g%3E%3Cg transform='translate(88 82) scale(0.75)'%3E%3Cpath d='M0 -14V14M-12 -7L12 7M-12 7L12 -7'/%3E%3Cpath d='M0 -14l-4 4M0 -14l4 4M0 14l-4-4M0 14l4-4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 
+
+[data-theme="space"] {
+  --nx-bg: #070B1A; --nx-surface: #101A33; --nx-surface-2: #0C1428; --nx-surface-3: #0A1122;
+  --nx-border: #24314F; --nx-text: #E8EEFB; --nx-text-strong: #FFFFFF; --nx-text-muted: #9AAAC9; --nx-accent: #8FA8FF;
+  --nx-radius-btn: 0.9rem; --nx-radius-card: 1.15rem; --nx-radius-bubble: 1.15rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260'%3E%3Cg fill='none'%3E%3Cg fill='%23B9C7FF' opacity='0.30'%3E%3Ccircle cx='24' cy='38' r='1.4'/%3E%3Ccircle cx='78' cy='16' r='1'/%3E%3Ccircle cx='132' cy='52' r='1.8'/%3E%3Ccircle cx='196' cy='28' r='1.1'/%3E%3Ccircle cx='232' cy='76' r='1.5'/%3E%3Ccircle cx='46' cy='112' r='1.2'/%3E%3Ccircle cx='108' cy='132' r='1'/%3E%3Ccircle cx='172' cy='108' r='1.6'/%3E%3Ccircle cx='214' cy='166' r='1.1'/%3E%3Ccircle cx='64' cy='196' r='1.7'/%3E%3Ccircle cx='140' cy='216' r='1.1'/%3E%3Ccircle cx='188' cy='238' r='1.4'/%3E%3Ccircle cx='18' cy='160' r='1'/%3E%3C/g%3E%3Cg opacity='0.16'%3E%3Ccircle cx='206' cy='64' r='26' stroke='%23A9B8FF' stroke-width='1.4'/%3E%3Cpath d='M180 64c0-14 12-24 26-24' stroke='%23A9B8FF' stroke-width='4' stroke-linecap='round' stroke-dasharray='2 7'/%3E%3C/g%3E%3Cg stroke='%23DCE4FF' stroke-width='1' opacity='0.18' stroke-linecap='round'%3E%3Cpath d='M92 84l16 -16'/%3E%3Cpath d='M74 190l12 -12'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  color-scheme: dark;
+}
+[data-theme="aurora"] {
+  --nx-bg: #06121A; --nx-surface: #0D2029; --nx-surface-2: #0A1A22; --nx-surface-3: #08161D;
+  --nx-border: #1B3A45; --nx-text: #E6F6F2; --nx-text-strong: #FFFFFF; --nx-text-muted: #96BFC0; --nx-accent: #67E8C3;
+  --nx-radius-btn: 1rem; --nx-radius-card: 1.3rem; --nx-radius-bubble: 1.3rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M-20 70c60-40 120 30 180-10s120 20 180-10' stroke='%2367E8C3' stroke-width='10' opacity='0.10'/%3E%3Cpath d='M-20 120c60-40 120 30 180-10s120 20 180-10' stroke='%238FB4FF' stroke-width='8' opacity='0.08'/%3E%3Cpath d='M-20 210c60-40 120 30 180-10s120 20 180-10' stroke='%23B79CFF' stroke-width='9' opacity='0.07'/%3E%3Cg fill='%23D9FFF5' opacity='0.4'%3E%3Ccircle cx='40' cy='40' r='1.2'/%3E%3Ccircle cx='150' cy='26' r='0.9'/%3E%3Ccircle cx='250' cy='58' r='1.1'/%3E%3Ccircle cx='90' cy='270' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  color-scheme: dark;
+}
+[data-theme="cat"] {
+  --nx-bg: #FFF8F3; --nx-surface: #FFFFFF; --nx-surface-2: #F8E9DE; --nx-surface-3: #FFFAF6;
+  --nx-border: #F0DCCD; --nx-text: #3B2E28; --nx-text-strong: #2A201B; --nx-text-muted: #9A8072; --nx-accent: #D08A5A;
+  --nx-radius-btn: 1.05rem; --nx-radius-card: 1.3rem; --nx-radius-bubble: 1.3rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23D08A5A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' opacity='0.18'%3E%3Cpath d='M38 54l-6-16 16 8'/%3E%3Cpath d='M68 54l6-16-16 8'/%3E%3Cpath d='M30 62c0-10 9-16 23-16s23 6 23 16-10 18-23 18-23-8-23-18z'/%3E%3Ccircle cx='45' cy='62' r='1.8' fill='%23D08A5A'/%3E%3Ccircle cx='61' cy='62' r='1.8' fill='%23D08A5A'/%3E%3Cpath d='M49 71c2 2 6 2 8 0'/%3E%3Cpath d='M53 66v3'/%3E%3Cg transform='translate(112 112)'%3E%3Ccircle cx='0' cy='0' r='5'/%3E%3Ccircle cx='-9' cy='-7' r='2.6'/%3E%3Ccircle cx='-11' cy='2' r='2.6'/%3E%3Ccircle cx='-3' cy='9' r='2.6'/%3E%3C/g%3E%3Cpath d='M126 48c10 0 16 6 16 6s-6 6-16 6-16-6-16-6 6-6 16-6z'/%3E%3Cpath d='M142 54l8-4M142 54l8 4'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-theme="astro"] {
+  --nx-bg: #F4F7FC; --nx-surface: #FFFFFF; --nx-surface-2: #E6EDF9; --nx-surface-3: #F8FAFE;
+  --nx-border: #D8E2F2; --nx-text: #1D2739; --nx-text-strong: #101828; --nx-text-muted: #7B8AA3; --nx-accent: #5C7CFA;
+  --nx-radius-btn: 1rem; --nx-radius-card: 1.25rem; --nx-radius-bubble: 1.25rem;
+  --nx-pattern: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cg fill='none' stroke='%235C7CFA' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' opacity='0.20'%3E%3Ccircle cx='58' cy='58' r='22'/%3E%3Cpath d='M48 56c2-6 6-9 10-9s8 3 10 9'/%3E%3Cpath d='M40 58h-8M76 58h8'/%3E%3Cpath d='M58 36v-6'/%3E%3Cpath d='M30 128c14-8 34-8 48 0'/%3E%3Cpath d='M36 136c12-6 28-6 40 0'/%3E%3Cg fill='%235C7CFA' stroke='none' opacity='0.5'%3E%3Ccircle cx='140' cy='44' r='2'/%3E%3Ccircle cx='166' cy='74' r='1.4'/%3E%3Ccircle cx='126' cy='92' r='1.6'/%3E%3Ccircle cx='176' cy='150' r='2.2'/%3E%3C/g%3E%3Cpath d='M150 118a16 16 0 1032 0 16 16 0 10-32 0'/%3E%3Cpath d='M150 118c0-6 7-10 16-10s16 4 16 10'/%3E%3C/g%3E%3C/svg%3E");
+}
+
 /* 테마별 모서리 (버튼은 알약/각짐이 테마에 따라 바뀜) */
 [class~="rounded-xl"] { border-radius: var(--nx-radius-btn) !important; }
 [class~="rounded-2xl"] { border-radius: var(--nx-radius-card) !important; }
@@ -403,6 +503,10 @@ svg.lucide { stroke-width: 1.75; }
 [data-theme="forest"] { --nx-primary: #3FBF7F; --nx-on-primary: #08170F; --nx-primary-hover: #5ACF94; }
 [data-theme="sunset"] { --nx-primary: #E86610; --nx-on-primary: #FFFFFF; --nx-primary-hover: #C9570C; }
 [data-theme="dark"] { --nx-primary: #4F8CFF; --nx-on-primary: #07101F; --nx-primary-hover: #6DA0FF; }
+[data-theme="space"] { --nx-primary: #4F6BFF; --nx-on-primary: #FFFFFF; --nx-primary-hover: #6E85FF; }
+[data-theme="aurora"] { --nx-primary: #2FB79A; --nx-on-primary: #04211B; --nx-primary-hover: #3ED1B0; }
+[data-theme="cat"] { --nx-primary: #D08A5A; --nx-on-primary: #FFFFFF; --nx-primary-hover: #BB7748; }
+[data-theme="astro"] { --nx-primary: #5C7CFA; --nx-on-primary: #FFFFFF; --nx-primary-hover: #4A68E8; }
 
 /* 글씨체: html[data-font] 에 따라 main.tsx 가 --nx-font-sans 를 바꿉니다. */
 body, button, input, textarea, select, option {
@@ -463,3 +567,8 @@ body, button, input, textarea, select, option {
 [class~="hover:bg-[#FDFBF7]/60"]:hover,
 [class~="hover:bg-[#FDFBF7]/70"]:hover,
 [class~="hover:bg-[#FDFBF7]/80"]:hover { background-color: color-mix(in srgb, var(--nx-accent) 10%, transparent) !important; }
+
+/* 아주 낮은 화면(가로 모드 폰·짧은 창)에서는 안내 배너가 대화를 가리지 않게 숨깁니다. */
+@media (max-height: 460px) {
+  .nx-guest-banner { display: none !important; }
+}

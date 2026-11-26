@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, doc, onSnapshot, orderBy, query, setDoc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, collection, doc, onSnapshot, orderBy, query, setDoc, getDocFromServer, where } from 'firebase/firestore';
 import { 
   getAuth, 
   signInWithPopup, 
@@ -319,6 +319,144 @@ export const subscribeToCloudContacts = (
     });
   } catch (error) {
     console.warn('[Firestore] Contacts subscribe failed:', error);
+    return () => {};
+  }
+};
+
+// ==========================================
+// 실시간 상태(타이핑 · 읽음) — spaces/{spaceId}/typing/{uid} · spaces/{spaceId}/reads/{uid}
+// ==========================================
+export const publishTypingState = async (spaceId: string, userId: string, userName: string) => {
+  if (!auth?.currentUser || !firestore) return;
+  if (auth.currentUser.uid !== userId) return;
+  try {
+    await setDoc(doc(firestore, 'spaces', spaceId, 'typing', userId), {
+      uid: userId,
+      name: userName,
+      at: Date.now(),
+    });
+  } catch (error) {
+    console.warn('[Firestore] Typing publish failed:', error);
+  }
+};
+
+export const clearTypingState = async (spaceId: string, userId: string) => {
+  if (!auth?.currentUser || !firestore) return;
+  if (auth.currentUser.uid !== userId) return;
+  try {
+    const { deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(doc(firestore, 'spaces', spaceId, 'typing', userId));
+  } catch (error) {
+    console.warn('[Firestore] Typing clear failed:', error);
+  }
+};
+
+export const subscribeToTypingStates = (
+  spaceId: string,
+  callback: (entries: { uid: string; name?: string; at: number }[]) => void
+) => {
+  if (!firestore || !auth?.currentUser) return () => {};
+  try {
+    return onSnapshot(
+      collection(firestore, 'spaces', spaceId, 'typing'),
+      (snapshot) => {
+        callback(
+          snapshot.docs.map((item) => {
+            const data = item.data() as any;
+            return { uid: String(data.uid || item.id), name: data.name, at: Number(data.at) || 0 };
+          })
+        );
+      },
+      (error) => console.warn('[Firestore] Typing subscribe failed:', error)
+    );
+  } catch (error) {
+    console.warn('[Firestore] Typing subscribe failed:', error);
+    return () => {};
+  }
+};
+
+export const publishReadState = async (spaceId: string, userId: string, userName: string, at = Date.now()) => {
+  if (!auth?.currentUser || !firestore) return;
+  if (auth.currentUser.uid !== userId) return;
+  try {
+    await setDoc(
+      doc(firestore, 'spaces', spaceId, 'reads', userId),
+      { uid: userId, name: userName, at },
+      { merge: true }
+    );
+  } catch (error) {
+    console.warn('[Firestore] Read state publish failed:', error);
+  }
+};
+
+export const subscribeToReadStates = (
+  spaceId: string,
+  callback: (entries: Record<string, { name?: string; at: number }>) => void
+) => {
+  if (!firestore || !auth?.currentUser) return () => {};
+  try {
+    return onSnapshot(
+      collection(firestore, 'spaces', spaceId, 'reads'),
+      (snapshot) => {
+        const map: Record<string, { name?: string; at: number }> = {};
+        snapshot.docs.forEach((item) => {
+          const data = item.data() as any;
+          map[String(data.uid || item.id)] = { name: data.name, at: Number(data.at) || 0 };
+        });
+        callback(map);
+      },
+      (error) => console.warn('[Firestore] Reads subscribe failed:', error)
+    );
+  } catch (error) {
+    console.warn('[Firestore] Reads subscribe failed:', error);
+    return () => {};
+  }
+};
+
+// ==========================================
+// 친구 요청 — friendRequests/{requestId}
+// 보낸 사람은 바로 저장되고, 받는 사람 화면에도 실시간으로 도착합니다.
+// ==========================================
+export const saveFriendRequestToFirestore = async (request: Record<string, any>) => {
+  if (!auth?.currentUser || !firestore) return false;
+  if (request.fromUserId !== auth.currentUser.uid) return false;
+  try {
+    const safe = JSON.parse(JSON.stringify(request));
+    await setDoc(doc(firestore, 'friendRequests', String(request.id)), safe, { merge: true });
+    return true;
+  } catch (error) {
+    console.warn('[Firestore] Friend request save failed:', error);
+    return false;
+  }
+};
+
+export const updateFriendRequestStatusInFirestore = async (requestId: string, status: 'accepted' | 'rejected') => {
+  if (!auth?.currentUser || !firestore) return false;
+  try {
+    const { updateDoc } = await import('firebase/firestore');
+    await updateDoc(doc(firestore, 'friendRequests', requestId), { status, respondedAt: Date.now() });
+    return true;
+  } catch (error) {
+    console.warn('[Firestore] Friend request update failed:', error);
+    return false;
+  }
+};
+
+export const subscribeToFriendRequests = (
+  userId: string,
+  field: 'toUserId' | 'fromUserId',
+  callback: (requests: any[]) => void
+) => {
+  if (!firestore || !auth?.currentUser) return () => {};
+  try {
+    const q = query(collection(firestore, 'friendRequests'), where(field, '==', userId));
+    return onSnapshot(
+      q,
+      (snapshot) => callback(snapshot.docs.map((item) => item.data())),
+      (error) => console.warn('[Firestore] Friend request subscribe failed:', error)
+    );
+  } catch (error) {
+    console.warn('[Firestore] Friend request subscribe failed:', error);
     return () => {};
   }
 };

@@ -28,6 +28,25 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
       allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
       allow delete: if false;
+
+      // Subcollection: contacts (내 별명/메모는 나만 읽고 쓸 수 있습니다)
+      match /contacts/{contactId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create, update, delete: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // 친구 요청 (보낸 사람은 만들기, 받는 사람은 수락/거절만)
+    match /friendRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        existing().toUserId == request.auth.uid || existing().fromUserId == request.auth.uid
+      );
+      allow create: if isSignedIn()
+        && incoming().fromUserId == request.auth.uid
+        && incoming().toUserId is string
+        && incoming().toUserId != request.auth.uid;
+      allow update: if isSignedIn() && existing().toUserId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().toUserId == request.auth.uid;
     }
 
     // Spaces collection
@@ -43,6 +62,18 @@ service cloud.firestore {
         allow create: if isSignedIn() && isValidId(messageId) && incoming().senderId == request.auth.uid;
         allow update: if isSignedIn() && isValidId(messageId);
         allow delete: if isSignedIn() && existing().senderId == request.auth.uid;
+      }
+
+      // Subcollection: typing (본인 상태만 쓰기)
+      match /typing/{userId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Subcollection: reads (마지막으로 읽은 시각, 본인 것만 쓰기)
+      match /reads/{userId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isSignedIn() && request.auth.uid == userId;
       }
     }
 
