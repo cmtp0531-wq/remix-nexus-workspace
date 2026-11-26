@@ -522,6 +522,9 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   const SearchThemeIcon = themeIcons.search;
   const SettingsThemeIcon = themeIcons.settings;
   const ThemeDriveIcon = themeIcons.drive;
+  const AiThemeIcon = themeIcons.ai;
+  const MeetThemeIcon = themeIcons.meet;
+  const CanvasThemeIcon = themeIcons.canvas;
 
   // Quick Poll Modal
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
@@ -2005,7 +2008,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             title={isGeminiPanelOpen ? '제미나이 AI 패널 닫기' : '제미나이 AI 비서 열기 (대화 기반)'}
             aria-label="제미나이 AI 패널"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#C18C5D]" />
+            <AiThemeIcon className="w-3.5 h-3.5 text-[#C18C5D]" />
             <span className="sr-only">Gemini AI</span>
           </button>
 
@@ -2023,7 +2026,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               aria-haspopup="menu"
               aria-expanded={showMeetMenu}
             >
-              <Video className="w-3.5 h-3.5" />
+              <MeetThemeIcon className="w-3.5 h-3.5" />
               <span className="sr-only">{isHuddleActive ? '통화 중' : '회의'}</span>
             </button>
             {showMeetMenu && (
