@@ -2077,7 +2077,7 @@ function WorkspaceApp() {
       />
 
       {/* Google 로그인 오류 / 게스트 안내 배너 (화면 상단 고정) */}
-      <div className="nx-guest-banner fixed top-14 sm:top-auto sm:bottom-28 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pointer-events-none">
+      <div className="nx-guest-banner fixed bottom-[7.75rem] sm:bottom-28 left-0 right-0 z-[60] flex flex-col items-center gap-2 px-2 pointer-events-none">
         {authError && (
           <div className="pointer-events-auto w-full max-w-md px-4 py-2.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold flex items-start gap-2 shadow-lg nx-fade-in">
             <span className="flex-1 leading-relaxed">{authError}</span>
