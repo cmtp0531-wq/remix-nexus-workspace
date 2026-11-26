@@ -19,10 +19,13 @@ import {
   BellOff,
 } from 'lucide-react';
 import { ThemeSettings } from './ThemeSettings';
+import { avatarSrc, handleAvatarError } from './UserAvatar';
 import { User } from '../types';
 import {
   FirebaseAppConfig,
   getGeminiApiKey,
+  getGeminiModel,
+  saveGeminiModel,
   getStoredFirebaseConfig,
   isFirebaseConfigured,
   maskSecret,
@@ -31,6 +34,14 @@ import {
   saveGeminiApiKey,
   saveStoredFirebaseConfig,
 } from '../services/appConfig';
+import {
+  DEFAULT_GEMINI_MODELS,
+  DEFAULT_GEMINI_MODEL,
+  fetchAvailableGeminiModels,
+  normalizeModelId,
+  type GeminiModelOption,
+} from '../services/geminiModels';
+import { RefreshCw, CheckCircle2, Loader2, UserCog, Rocket } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -41,6 +52,8 @@ interface SettingsModalProps {
   authError: string;
   onGoogleSignIn: () => void;
   onSignOut: () => void;
+  /** 다른 Google 계정으로 전환 (계정 선택창 표시) */
+  onSwitchAccount?: () => void;
   /** 시스템 알림 수신 설정 (설정 모달 안에서만 바꿉니다) */
   notificationsEnabled?: boolean;
   onToggleNotifications?: () => void;
@@ -57,14 +70,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   authError,
   onGoogleSignIn,
   onSignOut,
+  onSwitchAccount,
   notificationsEnabled = true,
   onToggleNotifications,
 }) => {
   const [tab, setTab] = useState<TabKey>('ai');
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  // 탭을 바꾸면 스크롤을 맨 위로 (새 탭이 중간부터 보이지 않게)
+  React.useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [tab]);
 
   // Gemini
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiSaved, setGeminiSaved] = useState(false);
+  // Gemini 모델 선택
+  const [model, setModel] = useState<string>(() => normalizeModelId(getGeminiModel()) || DEFAULT_GEMINI_MODEL);
+  const [keyModels, setKeyModels] = useState<GeminiModelOption[] | null>(null);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelMessage, setModelMessage] = useState('');
 
   // Firebase
   const [firebaseText, setFirebaseText] = useState('');
@@ -80,6 +105,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setGeminiKey(getGeminiApiKey());
     setStoredConfig(getStoredFirebaseConfig());
     setGeminiSaved(false);
+    setModel(normalizeModelId(getGeminiModel()) || DEFAULT_GEMINI_MODEL);
+    setModelMessage('');
     setFirebaseSaved(false);
     setFirebaseError('');
     setDataMessage('');
@@ -95,6 +122,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     saveGeminiApiKey(geminiKey);
     setGeminiSaved(true);
     setTimeout(() => setGeminiSaved(false), 2200);
+  };
+
+  const handlePickModel = (nextId: string) => {
+    setModel(nextId);
+    saveGeminiModel(nextId);
+    setModelMessage(`✓ ${nextId} 모델로 저장했습니다.`);
+    setTimeout(() => setModelMessage(''), 2600);
+  };
+
+  const handleLoadKeyModels = async () => {
+    const key = (geminiKey || getGeminiApiKey()).trim();
+    if (!key) {
+      setModelMessage('먼저 Gemini API 키를 입력하고 저장해 주세요.');
+      return;
+    }
+    setModelLoading(true);
+    setModelMessage('');
+    try {
+      const list = await fetchAvailableGeminiModels(key);
+      if (list && list.length > 0) {
+        setKeyModels(list);
+        setModelMessage(`✓ 이 키로 사용할 수 있는 모델 ${list.length}개를 불러왔습니다.`);
+        if (!list.some((item) => item.id === model)) {
+          handlePickModel(list[0].id);
+        }
+      } else {
+        setKeyModels(null);
+        setModelMessage('모델 목록을 불러오지 못했습니다. 키를 확인하거나 아래 기본 목록에서 골라 주세요.');
+      }
+    } finally {
+      setModelLoading(false);
+    }
   };
 
   const handleSaveFirebase = () => {
@@ -245,7 +304,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <TabButton tabKey="data" key="data" icon={<Database className="w-3.5 h-3.5" />} label="데이터" />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4" style={{ color: 'var(--nx-text)' }}>
+        <div ref={contentRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4" style={{ color: 'var(--nx-text)' }}>
           {tab === 'notifications' && (
             <section className="space-y-3">
               <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4">
@@ -357,6 +416,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   키가 없으면 AI 패널은 안내 문구만 표시합니다. 채팅·문서·시트·슬라이드는 키 없이도 모두 사용할 수 있습니다.
                 </p>
               )}
+
+              {/* ── Gemini 모델 선택 (키마다 쓸 수 있는 모델이 다릅니다) ── */}
+              <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4" data-testid="gemini-model-card">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    <Rocket className="w-4 h-4 text-[#8D5B4C]" />
+                    사용할 Gemini 모델
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F4EFE6] text-[#7A6A5C]">
+                    이 계정에 저장
+                  </span>
+                </div>
+                <p className="text-[12px] text-[#7A6A5C] leading-5 mt-1.5">
+                  키마다 사용할 수 있는 모델이 다릅니다. 키를 저장한 뒤 <strong>모델 불러오기</strong>를 누르면
+                  그 키에서 실제로 쓸 수 있는 모델만 골라서 보여줍니다.
+                </p>
+
+                <select
+                  value={model}
+                  onChange={(event) => handlePickModel(event.target.value)}
+                  data-testid="gemini-model-select"
+                  className="w-full mt-3 px-3 py-2 rounded-xl border border-[#E7E2D9] bg-[#FDFBF7] text-xs font-semibold outline-none focus:border-[#8D5B4C] cursor-pointer"
+                >
+                  {(keyModels && keyModels.length > 0 ? keyModels : DEFAULT_GEMINI_MODELS).map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label} ({option.id}) — {option.desc}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                  <button
+                    onClick={handleLoadKeyModels}
+                    disabled={modelLoading}
+                    data-testid="gemini-load-models"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#3E2723] text-white text-xs font-bold hover:bg-[#2C2520] disabled:opacity-60 cursor-pointer"
+                  >
+                    {modelLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    {modelLoading ? '불러오는 중…' : '내 키로 모델 불러오기'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setKeyModels(null);
+                      handlePickModel(DEFAULT_GEMINI_MODEL);
+                      setModelMessage('기본 목록으로 되돌렸습니다.');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-[#F4EFE6] text-[#7A6A5C] text-xs font-bold hover:bg-[#EBE5DA] cursor-pointer"
+                  >
+                    기본 목록
+                  </button>
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> {model}
+                  </span>
+                </div>
+
+                {modelMessage && (
+                  <p className="mt-2 text-[11px] text-[#5C5046]" data-testid="gemini-model-message">
+                    {modelMessage}
+                  </p>
+                )}
+                <p className="mt-2 text-[10.5px] text-[#A89A8E] leading-relaxed">
+                  모델을 바꾸면 채팅 안의 AI 비서·요약·번역 호출에 바로 적용됩니다. 선택값은 이 계정에만 저장됩니다.
+                </p>
+              </div>
             </section>
           )}
 
@@ -388,7 +511,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex flex-wrap items-center gap-2 mt-3">
                   {isGuest ? (
                     <button
                       onClick={onGoogleSignIn}
@@ -399,13 +522,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {authLoading ? '로그인 중…' : 'Google로 로그인'}
                     </button>
                   ) : (
-                    <button
-                      onClick={onSignOut}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EFE6] text-[#7A6A5C] text-xs font-bold hover:bg-[#EBE5DA] cursor-pointer"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      로그아웃 (게스트로 전환)
-                    </button>
+                    <>
+                      <button
+                        onClick={onSwitchAccount}
+                        disabled={authLoading || !onSwitchAccount}
+                        data-testid="settings-switch-account"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1765CC] disabled:opacity-60 cursor-pointer"
+                      >
+                        <UserCog className="w-3.5 h-3.5" />
+                        {authLoading ? '전환 중…' : '다른 Google 계정으로 전환'}
+                      </button>
+                      <button
+                        onClick={onSignOut}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F4EFE6] text-[#7A6A5C] text-xs font-bold hover:bg-[#EBE5DA] cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        로그아웃 (게스트로 전환)
+                      </button>
+                    </>
                   )}
                 </div>
                 {!firebaseConfigured && (
@@ -413,6 +547,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     아래에 본인 Firebase 설정을 먼저 입력하면 로그인 버튼이 활성화됩니다.
                   </p>
                 )}
+              </div>
+
+              {/* 현재 계정 프로필 — 사진은 항상 이 계정 것으로만 표시됩니다 */}
+              <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4" data-testid="settings-account-card">
+                <div className="flex items-center gap-3">
+                  <img
+                    key={`${currentUser.id}-${currentUser.avatar || 'default'}`}
+                    src={avatarSrc(currentUser.avatar, currentUser.name)}
+                    onError={handleAvatarError}
+                    alt={currentUser.name}
+                    className="w-11 h-11 rounded-full object-cover bg-[#F4EFE6]"
+                    data-testid="settings-account-avatar"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#3E2723] truncate">{currentUser.name}</p>
+                    <p className="text-[11px] text-[#7A6A5C] truncate">{isGuest ? '게스트(로컬) 계정' : currentUser.email}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-[#A89A8E] leading-relaxed">
+                  계정을 전환하면 테마·대화·연락처·프로필 사진이 모두 그 계정의 것으로 바뀌고, 이전 계정의 상태는 남지 않습니다.
+                </p>
               </div>
 
               <div className="rounded-2xl border border-[#EBE5DA] bg-white p-4">

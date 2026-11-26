@@ -69,6 +69,7 @@ import {
   saveCloudChatMessage, 
   deleteCloudChatMessage,
   subscribeToCloudChatMessages,
+  savePollVoteToCloud,
   saveUserProfileToFirestore,
   subscribeToCloudUsers,
   saveFriendRequestToFirestore,
@@ -76,7 +77,16 @@ import {
   subscribeToFriendRequests,
   isGoogleSignedIn
 } from './services/googleWorkspace';
-import { isFirebaseConfigured, onSettingsChanged } from './services/appConfig';
+import { getGeminiModel, getStoredFirebaseConfig, isFirebaseConfigured, onSettingsChanged } from './services/appConfig';
+import { applyFont, applyTheme, getFont, getTheme } from './theme';
+import { pullUserSettings, startUserSettingsSync, stopUserSettingsSync } from './services/userSettingsService';
+import {
+  getAccountScope,
+  setAccountScope,
+  scopedGet,
+  scopedSet,
+  GUEST_SCOPE,
+} from './services/accountScope';
 import {
   completeRedirectSignIn,
   createRealCalendarEvent,
@@ -118,7 +128,7 @@ function WorkspaceApp() {
   const [authError, setAuthError] = useState('');
   const [showGuestBanner, setShowGuestBanner] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('workchat_guest_banner_dismissed') !== '1';
+      return scopedGet('workchat_guest_banner_dismissed') !== '1';
     } catch {
       return true;
     }
@@ -298,7 +308,7 @@ function WorkspaceApp() {
   // /remind 명령: 브라우저 알림 리마인더 예약 (새로고침해도 유지)
   const [reminders, setReminders] = useState<Array<{ id: string; text: string; at: number }>>(() => {
     try {
-      const raw = localStorage.getItem('workchat_reminders_v1');
+      const raw = scopedGet('workchat_reminders_v1');
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch {
@@ -317,7 +327,7 @@ function WorkspaceApp() {
             setReminders((prev) => {
               const next = prev.filter((item) => item.id !== reminder.id);
               try {
-                localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
+                scopedSet('workchat_reminders_v1', JSON.stringify(next));
               } catch {
                 /* noop */
               }
@@ -335,7 +345,7 @@ function WorkspaceApp() {
     const next = [...reminders, reminder];
     setReminders(next);
     try {
-      localStorage.setItem('workchat_reminders_v1', JSON.stringify(next));
+      scopedSet('workchat_reminders_v1', JSON.stringify(next));
     } catch {
       /* noop */
     }
@@ -367,14 +377,82 @@ function WorkspaceApp() {
     };
   }, []);
 
+  /** 최신 현재 사용자 (콜백 의존성 없이 비교하기 위한 ref) */
+  const currentUserRef = React.useRef<User | null>(currentUser);
+  React.useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  /**
+   * 계정 스코프를 바꾸고 그 계정의 저장 데이터·테마로 화면 상태를 완전히 새로 채웁니다.
+   * 이전 계정의 메모리 상태(대화·활성 스페이스·연락처·테마·캐시)는 하나도 남기지 않습니다.
+   */
+  const applyAccountState = React.useCallback((scopeId: string) => {
+    setAccountScope(scopeId);
+    const freshSpaces = storage.getSpaces();
+    setAllUsers(storage.getUsers());
+    setSpaces(freshSpaces);
+    setMessagesMap(storage.getMessages());
+    setTasks(storage.getTasks());
+    setFriendRequests(storage.getFriendRequests());
+    setFriendships(storage.getFriendships());
+    setContacts(loadContacts(scopeId));
+    setNotificationsEnabled(notificationService.getIsEnabled());
+    try {
+      const raw = scopedGet('workchat_reminders_v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      setReminders(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setReminders([]);
+    }
+
+    // 이 계정의 테마·글씨체·말풍선 색으로 즉시 교체 (이전 계정 설정이 남지 않도록)
+    applyTheme(getTheme());
+    applyFont(getFont());
+    window.dispatchEvent(new CustomEvent('nexus-bubble-colors'));
+
+    // 열려 있던 패널·모달·선택 상태 초기화
+    setActiveSpaceId(freshSpaces[0]?.id || DEFAULT_PUBLIC_SPACE.id);
+    setActiveThreadMessage(null);
+    setActiveDocEditor(null);
+    setIsTasksPanelOpen(false);
+    setIsDriveSplitOpen(false);
+    setIsYouTubeSplitOpen(false);
+    setIsMobileSidebarOpen(false);
+    setIsProfileModalOpen(false);
+    setIsSearchModalOpen(false);
+    setIsWorkspaceHubOpen(false);
+    setIsGeminiPanelOpen(false);
+    setIsContactsOpen(false);
+    setIsDrivePickerOpen(false);
+    setIsCalendarModalOpen(false);
+    setIsFriendModalOpen(false);
+    setIsCreateSpaceModalOpen(false);
+    setIsSpaceSettingsOpen(false);
+    setActiveTab('chat');
+    setFocusMode('chat');
+    setInAppNotifs([]);
+  }, []);
+
   /** Firebase 사용자 → 앱 프로필 반영 (동기 작업만 수행해 즉시 반영) */
   const applyFirebaseUser = React.useCallback((firebaseUser: FirebaseUser) => {
+    const previousId = currentUserRef.current?.id;
+    const scopeChanged = getAccountScope() !== firebaseUser.uid;
+    if (scopeChanged) {
+      // 계정이 바뀌면 이전 계정의 상태·이미지 캐시를 먼저 완전히 비웁니다.
+      if (previousId && previousId !== firebaseUser.uid) {
+        setCurrentUser(DEFAULT_LOCAL_USER);
+      }
+      applyAccountState(firebaseUser.uid);
+    }
+
     const existing = storage.getUsers().find((u) => u.id === firebaseUser.uid);
     const user: User = {
       id: firebaseUser.uid,
       name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Google 사용자',
       email: firebaseUser.email || '',
-      avatar: firebaseUser.photoURL || existing?.avatar || '',
+      // 계정에 등록된 사진만 사용합니다. 없으면 심플한 기본 일러스트로 즉시 대체됩니다.
+      avatar: firebaseUser.photoURL || '',
       status: 'online',
       role: existing?.role || '팀원',
       department: existing?.department || '협업팀',
@@ -388,7 +466,14 @@ function WorkspaceApp() {
     setIsGuest(false);
     // Firestore 프로필 저장은 화면 렌더를 막지 않도록 백그라운드로 보냅니다.
     void saveUserProfileToFirestore(user);
-  }, []);
+    // 이 기기에 설정이 없는 새 브라우저라면 계정에 저장된 테마·설정을 복원합니다.
+    void pullUserSettings(firebaseUser.uid).then((settings) => {
+      if (!settings) return;
+      if (!scopedGet('nexus_theme_v1') && settings.theme) applyTheme(settings.theme);
+      if (!scopedGet('nexus_font_v1') && settings.font) applyFont(settings.font);
+    });
+    startUserSettingsSync(firebaseUser.uid);
+  }, [applyAccountState]);
 
   // Firebase Authentication restores the real Google account on refresh.
   // 저장된 세션이 있으면 onAuthStateChanged 첫 콜백을 기다리지 않고 즉시 복원합니다.
@@ -404,16 +489,24 @@ function WorkspaceApp() {
 
     const unsubscribe = observeFirebaseAuth((firebaseUser: FirebaseUser | null) => {
       if (!firebaseUser) {
-        const local = storage.getCurrentUser() || DEFAULT_LOCAL_USER;
-        if (!storage.getCurrentUser()) storage.setCurrentUser(local);
-        setCurrentUser((prev) => prev ?? local);
+        stopUserSettingsSync();
+        // 로그아웃·세션 만료: 이전 계정의 상태를 남기지 않고 게스트 스코프로 분리합니다.
+        if (getAccountScope() !== GUEST_SCOPE) {
+          applyAccountState(GUEST_SCOPE);
+          const guest = storage.getCurrentUser() || DEFAULT_LOCAL_USER;
+          setCurrentUser(guest);
+        } else {
+          const local = storage.getCurrentUser() || DEFAULT_LOCAL_USER;
+          if (!storage.getCurrentUser()) storage.setCurrentUser(local);
+          setCurrentUser(local);
+        }
         setIsGuest(true);
         return;
       }
       applyFirebaseUser(firebaseUser);
     });
     return unsubscribe;
-  }, [applyFirebaseUser]);
+  }, [applyFirebaseUser, applyAccountState]);
 
   // 설정(Firebase/Gemini 키) 변경을 감지합니다.
   useEffect(() => onSettingsChanged(() => {
@@ -555,8 +648,49 @@ function WorkspaceApp() {
   }, [messagesMap, activeSpaceId]);
 
   // LOGIN / SIGNUP HANDLERS
+  /**
+   * 구글 계정 전환: 지금 세션을 끝내고 Google 계정 선택 창(prompt=select_account)을 띄웁니다.
+   * (기존 '팀원 계정 1초 전환'은 로컬 사용자만 바꿔 계정이 섞이는 원인이었습니다.)
+   */
+  const handleSwitchGoogleAccount = async () => {
+    if (authLoading) return;
+    setAuthError('');
+    setAuthLoading(true);
+    setIsSettingsOpen(false);
+    try {
+      // 1) 이전 계정 세션·메모리 상태를 완전히 정리합니다.
+      await signOutGoogle();
+      stopUserSettingsSync();
+      applyAccountState(GUEST_SCOPE);
+      storage.setCurrentUser(DEFAULT_LOCAL_USER);
+      setCurrentUser(DEFAULT_LOCAL_USER);
+      setIsGuest(true);
+      // 2) 계정 선택 창을 띄워 다른 Google 계정으로 로그인합니다.
+      const firebaseUser = await signInWithGoogleAccount();
+      if (firebaseUser) applyFirebaseUser(firebaseUser);
+    } catch (error: any) {
+      const code = String(error?.code || '') || getLastAuthErrorCode();
+      const message =
+        code.includes('popup-blocked') || code.includes('cancelled-popup-request')
+          ? '계정 선택 창이 차단되었습니다. 브라우저에서 팝업을 허용한 뒤 다시 눌러 주세요.'
+          : describeAuthError(code);
+      setAuthError(message);
+      notificationService.notify({ title: '계정 전환', body: message });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleLogin = (user: User) => {
-    if (auth?.currentUser && user.id !== auth.currentUser.uid) return;
+    // 구글에 로그인된 계정과 다른 사용자를 고르면 실제 구글 계정 선택 창으로 전환합니다.
+    if (auth?.currentUser && user.id !== auth.currentUser.uid) {
+      void handleSwitchGoogleAccount();
+      return;
+    }
+    if (!auth?.currentUser && !isGuest && user.id !== currentUser?.id) {
+      void handleSwitchGoogleAccount();
+      return;
+    }
     storage.setCurrentUser(user);
     setCurrentUser(user);
     
@@ -609,17 +743,16 @@ function WorkspaceApp() {
 
   const handleLogout = () => {
     void signOutGoogle();
-    // 로그아웃해도 막히지 않고 게스트(로컬) 사용자로 계속 사용할 수 있습니다.
+    stopUserSettingsSync();
+    // 로그아웃하면 이전 계정의 대화·연락처·테마·프로필 이미지를 남기지 않고
+    // 게스트(로컬) 계정의 저장 공간으로 완전히 분리합니다.
+    applyAccountState(GUEST_SCOPE);
     const guestUser = DEFAULT_LOCAL_USER;
     storage.setCurrentUser(guestUser);
     setCurrentUser(guestUser);
     setIsGuest(true);
+    setIsSettingsOpen(false);
     setIsProfileModalOpen(false);
-    setActiveThreadMessage(null);
-    setActiveDocEditor(null);
-    setIsTasksPanelOpen(false);
-    setIsMobileSidebarOpen(false);
-    setIsWorkspaceHubOpen(false);
   };
 
   // Keep the selected space valid without placing hooks after the login guard.
@@ -798,7 +931,7 @@ function WorkspaceApp() {
           id: `msg_gemini_${Date.now()}`,
           spaceId: activeSpaceId,
           senderId: 'gemini_ai_bot',
-          senderName: 'Gemini 3.7 AI 비서',
+          senderName: 'Gemini AI 비서',
           senderAvatar: '',
           senderRole: 'AI 협업 비서',
           content: aiAnswer,
@@ -815,7 +948,7 @@ function WorkspaceApp() {
         storage.saveMessages(withAiMsgs);
         setMessagesMap(withAiMsgs);
         notificationService.notify({
-          title: 'Gemini 3.7 AI 비서 ✨',
+          title: 'Gemini AI 비서 ✨',
           body: aiAnswer.length > 70 ? aiAnswer.substring(0, 70) + '...' : aiAnswer,
         });
       }, 700);
@@ -1244,34 +1377,37 @@ function WorkspaceApp() {
   };
 
   // 5. INTERACTIVE POLL VOTE (실시간 즉석 투표)
+  //    - 내 화면에 즉시 반영(낙관적 업데이트)
+  //    - 로그인 상태면 Firestore 메시지 문서의 voterIds 를 원자적으로 갱신해
+  //      같은 방의 다른 참여자 화면에도 실시간으로 같은 결과가 보이게 합니다.
   const handleVotePoll = (messageId: string, optionId: string) => {
     const channelMsgs = messagesMap[activeSpaceId] || [];
+    const target = channelMsgs.find((msg) => msg.id === messageId);
+    const attachmentIndex = (target?.attachments || []).findIndex((att) => att.type === 'poll');
+    if (attachmentIndex < 0) return;
+
+    let nextOptionId: string | null = optionId;
+    let pollOptions: { id: string; voterIds: string[] }[] = [];
+
     const updated = channelMsgs.map((msg) => {
       if (msg.id !== messageId || !msg.attachments) return msg;
 
-      const updatedAttachments = msg.attachments.map((att) => {
-        if (att.type === 'poll') {
-          const poll = att as any;
-          const updatedOptions = poll.options.map((opt: any) => {
-            const hasVoted = opt.voterIds.includes(currentUser.id);
-            if (opt.id === optionId) {
-              return {
-                ...opt,
-                voterIds: hasVoted
-                  ? opt.voterIds.filter((id: string) => id !== currentUser.id)
-                  : [...opt.voterIds, currentUser.id],
-              };
-            } else {
-              // Single choice vote: remove vote from other options
-              return {
-                ...opt,
-                voterIds: opt.voterIds.filter((id: string) => id !== currentUser.id),
-              };
-            }
-          });
-          return { ...poll, options: updatedOptions };
-        }
-        return att;
+      const updatedAttachments = msg.attachments.map((att, attIdx) => {
+        if (att.type !== 'poll' || attIdx !== attachmentIndex) return att;
+        const poll = att as any;
+        const already = (poll.options as any[]).find((opt) => opt.id === optionId);
+        const unvoting = Boolean(already?.voterIds?.includes(currentUser.id));
+        nextOptionId = unvoting ? null : optionId;
+        pollOptions = (poll.options as any[]).map((opt) => ({ id: opt.id, voterIds: [...(opt.voterIds || [])] }));
+
+        const updatedOptions = (poll.options as any[]).map((opt) => {
+          const withoutMine = (opt.voterIds || []).filter((id: string) => id !== currentUser.id);
+          if (opt.id === optionId && !unvoting) {
+            return { ...opt, voterIds: [...withoutMine, currentUser.id] };
+          }
+          return { ...opt, voterIds: withoutMine };
+        });
+        return { ...poll, options: updatedOptions };
       });
 
       return { ...msg, attachments: updatedAttachments };
@@ -1280,6 +1416,20 @@ function WorkspaceApp() {
     const nextMap = { ...messagesMap, [activeSpaceId]: updated };
     storage.saveMessages(nextMap);
     setMessagesMap(nextMap);
+
+    // 게스트/비로그인은 이 기기에만 저장됩니다.
+    const signedIn = Boolean(auth?.currentUser && auth.currentUser.uid === currentUser.id);
+    if (signedIn) {
+      void savePollVoteToCloud({
+        spaceId: activeSpaceId,
+        messageId,
+        attachmentIndex,
+        options: pollOptions,
+        optionId: nextOptionId,
+      }).catch((error) => {
+        console.warn('투표를 서버에 저장하지 못했습니다:', error);
+      });
+    }
   };
 
   // 6. SPACE CANVAS SCRATCHPAD (스페이스 실시간 공유 캔버스)
@@ -2109,7 +2259,7 @@ function WorkspaceApp() {
               onClick={() => {
                 setShowGuestBanner(false);
                 try {
-                  localStorage.setItem('workchat_guest_banner_dismissed', '1');
+                  scopedSet('workchat_guest_banner_dismissed', '1');
                 } catch {
                   /* noop */
                 }
@@ -2687,6 +2837,7 @@ function WorkspaceApp() {
             await handleGoogleSignIn();
           }}
           onSignOut={handleLogout}
+          onSwitchAccount={handleSwitchGoogleAccount}
           notificationsEnabled={notificationsEnabled}
           onToggleNotifications={handleToggleNotifications}
         />

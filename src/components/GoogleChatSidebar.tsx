@@ -391,7 +391,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
             <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#F4EFE6] text-[11px] font-bold text-[#5C5046]">
               <span className="flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-[#C18C5D]" />
-                <span>팀원 계정 즉시 전환 (새로고침 X)</span>
+                <span>계정 전환</span>
               </span>
               <button
                 type="button"
@@ -402,41 +402,42 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               </button>
             </div>
             
-            <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
-              {allUsers.map((u) => {
-                const isCurrent = u.id === currentUser.id;
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => {
-                      setIsAccountSwitcherOpen(false);
-                      if (!isCurrent && onSwitchUser) {
-                        onSwitchUser(u);
-                      }
-                    }}
-                    className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-all ${
-                      isCurrent
-                        ? 'bg-[#F4EFE6] text-[#3E2723] font-bold border border-[#EBE5DA]'
-                        : 'hover:bg-[#FAF7F2] text-[#2C2520]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      <img
-                        src={avatarSrc(u.avatar)} onError={handleAvatarError}
-                        alt={u.name}
-                        className="w-6 h-6 rounded-lg object-cover border border-[#EBE5DA]"
-                      />
-                      <div className="truncate">
-                        <div className="text-xs truncate">{u.name}</div>
-                        <div className="text-[10px] text-[#A89A8E] truncate">{u.role}</div>
-                      </div>
-                    </div>
-                    {isCurrent && <Check className="w-3.5 h-3.5 text-[#C18C5D] flex-shrink-0" />}
-                  </button>
-                );
-              })}
+            {/* 지금 계정 — 사진은 항상 이 계정 것만 표시됩니다 */}
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-[#F4EFE6] border border-[#EBE5DA]">
+              <img
+                key={`${currentUser.id}-${currentUser.avatar || 'default'}`}
+                src={avatarSrc(currentUser.avatar, currentUser.name)}
+                onError={handleAvatarError}
+                alt={currentUser.name}
+                className="w-7 h-7 rounded-lg object-cover border border-[#EBE5DA]"
+                data-testid="sidebar-account-avatar"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold truncate text-[#3E2723]">{currentUser.name}</div>
+                <div className="text-[10px] truncate text-[#A89A8E]">
+                  {currentUser.googleConnected ? currentUser.email || 'Google 계정' : '게스트(로컬) 계정'}
+                </div>
+              </div>
+              <Check className="w-3.5 h-3.5 text-[#C18C5D] flex-shrink-0" />
             </div>
+
+            {/* 실제 구글 계정 선택창으로 전환 */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsAccountSwitcherOpen(false);
+                if (onSwitchUser) onSwitchUser(currentUser);
+                else onGoogleSignIn?.();
+              }}
+              data-testid="sidebar-switch-google-account"
+              className="mt-1.5 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1765CC] transition-colors"
+            >
+              <UserCog className="w-3.5 h-3.5" />
+              <span>{currentUser.googleConnected ? '다른 Google 계정으로 전환' : 'Google 계정으로 로그인'}</span>
+            </button>
+            <p className="mt-1 text-[10px] leading-snug text-[#A89A8E]">
+              계정을 바꾸면 테마·대화·프로필 사진이 새 계정 것으로 바뀝니다.
+            </p>
 
             {onLogout && (
               <div className="pt-2 mt-2 border-t border-[#F4EFE6]">

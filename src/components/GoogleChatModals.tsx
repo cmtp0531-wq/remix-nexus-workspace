@@ -2349,6 +2349,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [urlInput, setUrlInput] = useState('');
   const [showUrlField, setShowUrlField] = useState(false);
 
+  // 계정이 바뀌면 이전 계정의 사진이 남지 않도록 즉시 새 계정 값으로 다시 맞춥니다.
+  useEffect(() => {
+    setAvatar(currentUser.avatar);
+    setStatus(currentUser.status);
+    setStatusText(currentUser.customStatus?.text || '');
+  }, [currentUser.id, currentUser.avatar]);
+
   if (!isOpen) return null;
 
   const handleSave = () => {
@@ -2393,7 +2400,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <div className="text-[11px] text-[#718096]">내 기기의 사진 파일을 직접 올릴 수 있습니다</div>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <label className="px-3 py-1.5 rounded-xl bg-white hover:bg-[#F3EFE7] border border-[#DDD4C7] text-xs font-bold text-[#4A3E34] cursor-pointer transition-colors shadow-xs flex items-center gap-1">
                   <Upload className="w-3.5 h-3.5 text-[#C89B7B]" />
                   <span>사진 업로드</span>
@@ -2517,8 +2524,30 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             />
           </div>
 
-          {/* Quick Account Switcher Section (새로고침 없이 1초 전환) */}
-          {allUsers.filter((u) => u.id !== currentUser.id).length > 0 && (
+          {/* 구글 계정 전환 (실제 계정 선택창) */}
+          {onSwitchUser && (
+            <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E0D8CB] space-y-2" data-testid="profile-switch-account">
+              <div className="text-xs">
+                <div className="font-bold text-[#342D26]">다른 Google 계정으로 전환</div>
+                <div className="text-[11px] text-[#718096] mt-0.5">
+                  계정 선택창이 열리고, 전환하면 테마·대화·프로필 사진이 그 계정의 것으로 바뀝니다.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onSwitchUser(currentUser);
+                }}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1765CC] transition-colors"
+              >
+                <Users className="w-3.5 h-3.5" />
+                Google 계정 선택창 열기
+              </button>
+            </div>
+          )}
+
+          {false && allUsers.filter((u) => u.id !== currentUser.id).length > 0 && (
             <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E0D8CB] space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-[#342D26]">다른 팀원 계정으로 즉시 전환:</span>

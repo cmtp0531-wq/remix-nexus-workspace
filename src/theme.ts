@@ -1,3 +1,4 @@
+import { scopedGet, scopedSet, scopedRemove, scopedKey } from './services/accountScope';
 // ============================================================
 // Nexus 테마팩 (카카오톡 테마처럼 색 · 모서리 · 패턴이 함께 바뀜)
 // - 오리지널 미니멀 SVG 패턴만 사용 (저작권 이슈 없음)
@@ -92,6 +93,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: 'aurora', name: '오로라', desc: '은은하게 일렁이는 오로라', swatch: ['#06121A', '#0D2029', '#67E8C3'] },
   { id: 'cat', name: '고양이', desc: '말랑한 크림톤 · 고양이 낙서', swatch: ['#FFF8F3', '#FFFFFF', '#D08A5A'] },
   { id: 'astro', name: '우주비행사', desc: '달과 별 · 맑은 하늘색', swatch: ['#F4F7FC', '#FFFFFF', '#5C7CFA'] },
+  { id: 'city', name: '노을 도시', desc: '건물 사이로 지는 붉은 노을', swatch: ['#2B1B2E', '#3D2033', '#FF8A5B'] },
 ];
 
 /** 테마별 기본 말풍선 색 (사용자가 직접 고른 색이 있으면 그 색이 우선) */
@@ -112,6 +114,7 @@ export const THEME_BUBBLE_DEFAULTS: Record<string, { mine: string; other: string
   aurora: { mine: '#2FB79A', other: '#10303A' },
   cat: { mine: '#E2A075', other: '#FFFFFF' },
   astro: { mine: '#5C7CFA', other: '#FFFFFF' },
+  city: { mine: '#F97362', other: '#FFF4EE' },
 };
 
 export const BUBBLE_PRESETS = [
@@ -127,7 +130,7 @@ const FONT_KEY = 'nexus_font_v1';
 
 export const getTheme = (): string => {
   try {
-    const stored = localStorage.getItem(THEME_KEY);
+    const stored = scopedGet(THEME_KEY);
     if (stored) return stored;
   } catch {
     /* ignore */
@@ -137,7 +140,7 @@ export const getTheme = (): string => {
 
 export const isBubbleCustomized = () => {
   try {
-    return localStorage.getItem(BUBBLE_CUSTOM_KEY) === '1';
+    return scopedGet(BUBBLE_CUSTOM_KEY) === '1';
   } catch {
     return false;
   }
@@ -149,18 +152,19 @@ export const applyTheme = (themeId: string) => {
   if (typeof document === 'undefined') return;
   document.documentElement.dataset.theme = themeId;
   try {
-    localStorage.setItem(THEME_KEY, themeId);
+    scopedSet(THEME_KEY, themeId);
     // 사용자가 말풍선 색을 직접 고르지 않았다면 테마 기본 말풍선 색을 따른다.
     if (!isBubbleCustomized()) {
       const defaults = THEME_BUBBLE_DEFAULTS[themeId];
       if (defaults) {
-        localStorage.setItem(BUBBLE_KEY, JSON.stringify(defaults));
+        scopedSet(BUBBLE_KEY, JSON.stringify(defaults));
         dispatchBubbleChange();
       }
     }
   } catch {
     /* ignore */
   }
+  applyWallpaper(themeId);
   window.dispatchEvent(new CustomEvent('nexus-theme-changed', { detail: themeId }));
 };
 
@@ -271,7 +275,7 @@ export const FONT_PRESETS: FontPreset[] = [
 
 export const getFont = (): string => {
   try {
-    const stored = localStorage.getItem(FONT_KEY);
+    const stored = scopedGet(FONT_KEY);
     if (stored && FONT_PRESETS.some((f) => f.id === stored)) return stored;
   } catch {
     /* ignore */
@@ -288,7 +292,7 @@ export const applyFont = (fontId: string) => {
   // Tailwind 의 font-sans 유틸리티도 같은 글씨체를 쓰게 한다.
   root.style.setProperty('--font-sans', preset.stack);
   try {
-    localStorage.setItem(FONT_KEY, preset.id);
+    scopedSet(FONT_KEY, preset.id);
   } catch {
     /* ignore */
   }
@@ -302,7 +306,7 @@ const SNOW_KEY = 'nexus_snow_v1';
 
 export const isSnowEnabled = (): boolean => {
   try {
-    return localStorage.getItem(SNOW_KEY) !== '0';
+    return scopedGet(SNOW_KEY) !== '0';
   } catch {
     return true;
   }
@@ -310,7 +314,7 @@ export const isSnowEnabled = (): boolean => {
 
 export const setSnowEnabled = (on: boolean) => {
   try {
-    localStorage.setItem(SNOW_KEY, on ? '1' : '0');
+    scopedSet(SNOW_KEY, on ? '1' : '0');
   } catch {
     /* ignore */
   }
@@ -319,12 +323,171 @@ export const setSnowEnabled = (on: boolean) => {
 
 export const markBubbleCustomized = (custom: boolean) => {
   try {
-    if (custom) localStorage.setItem(BUBBLE_CUSTOM_KEY, '1');
-    else localStorage.removeItem(BUBBLE_CUSTOM_KEY);
+    if (custom) scopedSet(BUBBLE_CUSTOM_KEY, '1');
+    else scopedRemove(BUBBLE_CUSTOM_KEY);
   } catch {
     /* ignore */
   }
 };
+
+/* ============================================================
+   테마별 배경화면 (public/wallpapers · 앱에 직접 제작해 번들)
+   - 이모티콘이 아니라 감성 배경 일러스트입니다.
+   - 말풍선 가독성을 위해 배경 위에 테마 배경색을 덮는 정도(dim)를 조절할 수 있습니다.
+   ============================================================ */
+export interface ThemeWallpaper {
+  /** public/wallpapers/<id>.jpg */
+  id: string;
+  name: string;
+  /** 기본 덮개 농도 (0 = 배경 그대로, 1 = 완전히 가림) */
+  dim: number;
+  /** 밝은 배경인지 (말풍선 대비 계산용) */
+  light: boolean;
+}
+
+/** 배경화면 라이브러리 (앱에 직접 제작해 넣은 원본 일러스트 16종) */
+export const WALLPAPER_LIBRARY: ThemeWallpaper[] = [
+  { id: 'cream', name: '카페 크림', dim: 0.62, light: true },
+  { id: 'silver', name: '애플 실버', dim: 0.72, light: true },
+  { id: 'chic', name: '시크 블랙', dim: 0.62, light: false },
+  { id: 'pastel', name: '동글 파스텔', dim: 0.5, light: true },
+  { id: 'puppy', name: '강아지', dim: 0.42, light: true },
+  { id: 'cat', name: '고양이', dim: 0.4, light: true },
+  { id: 'xmas', name: '크리스마스', dim: 0.58, light: false },
+  { id: 'winter', name: '겨울', dim: 0.55, light: true },
+  { id: 'lavender', name: '라벤더', dim: 0.55, light: true },
+  { id: 'midnight', name: '미드나잇', dim: 0.55, light: false },
+  { id: 'forest', name: '포레스트', dim: 0.6, light: false },
+  { id: 'sunset', name: '선셋', dim: 0.5, light: true },
+  { id: 'sunset-city', name: '노을 도시', dim: 0.42, light: false },
+  { id: 'space', name: '우주', dim: 0.5, light: false },
+  { id: 'aurora', name: '오로라', dim: 0.45, light: false },
+  { id: 'astro', name: '우주비행사', dim: 0.46, light: true },
+];
+
+/** 테마별 기본 배경화면 */
+export const THEME_WALLPAPERS: Record<string, ThemeWallpaper> = {
+  cream: { id: 'cream', name: '카페 크림', dim: 0.62, light: true },
+  silver: { id: 'silver', name: '애플 실버', dim: 0.72, light: true },
+  chic: { id: 'chic', name: '시크 블랙', dim: 0.62, light: false },
+  dark: { id: 'chic', name: '다크', dim: 0.52, light: false },
+  bubble: { id: 'pastel', name: '동글 파스텔', dim: 0.5, light: true },
+  puppy: { id: 'puppy', name: '강아지', dim: 0.42, light: true },
+  cat: { id: 'cat', name: '고양이', dim: 0.4, light: true },
+  xmas: { id: 'xmas', name: '크리스마스', dim: 0.58, light: false },
+  winter: { id: 'winter', name: '겨울', dim: 0.55, light: true },
+  lavender: { id: 'lavender', name: '라벤더', dim: 0.55, light: true },
+  midnight: { id: 'midnight', name: '미드나잇', dim: 0.55, light: false },
+  forest: { id: 'forest', name: '포레스트', dim: 0.6, light: false },
+  sunset: { id: 'sunset', name: '선셋', dim: 0.5, light: true },
+  city: { id: 'sunset-city', name: '노을 도시', dim: 0.42, light: false },
+  space: { id: 'space', name: '우주', dim: 0.5, light: false },
+  aurora: { id: 'aurora', name: '오로라', dim: 0.45, light: false },
+  astro: { id: 'astro', name: '우주비행사', dim: 0.46, light: true },
+};
+
+const WALLPAPER_ID_KEY = 'nexus_wallpaper_id_v1';
+
+const WALLPAPER_DIM_KEY = 'nexus_wallpaper_dim_v1';
+const WALLPAPER_BLUR_KEY = 'nexus_wallpaper_blur_v1';
+
+const wallpaperBase = (): string => {
+  if (typeof document === 'undefined') return '/';
+  try {
+    return new URL('.', document.baseURI).href;
+  } catch {
+    return '/';
+  }
+};
+
+export const wallpaperUrl = (id: string, thumb = false): string =>
+  `${wallpaperBase()}wallpapers/${id}${thumb ? '-thumb' : ''}.jpg`;
+
+/** 사용자가 직접 고른 배경화면 id (계정별) */
+export const getChosenWallpaperId = (): string | null => scopedGet(WALLPAPER_ID_KEY) || null;
+
+export const setChosenWallpaper = (wallpaperId: string | null) => {
+  if (wallpaperId) scopedSet(WALLPAPER_ID_KEY, wallpaperId);
+  else scopedRemove(WALLPAPER_ID_KEY);
+  applyWallpaper();
+  window.dispatchEvent(new CustomEvent('nexus-theme-changed', { detail: getTheme() }));
+};
+
+export const getThemeWallpaper = (themeId?: string): ThemeWallpaper => {
+  const chosen = getChosenWallpaperId();
+  if (chosen) {
+    const found = WALLPAPER_LIBRARY.find((item) => item.id === chosen);
+    if (found) return found;
+  }
+  return THEME_WALLPAPERS[themeId || getTheme()] || THEME_WALLPAPERS.cream;
+};
+
+export const getThemeWallpaperId = (themeId?: string): string => getThemeWallpaper(themeId).id;
+
+/** 사용자가 조절한 덮개 농도 (0~1). 없으면 테마 기본값 */
+export const getWallpaperDim = (): number => {
+  const raw = scopedGet(WALLPAPER_DIM_KEY);
+  if (raw === null) return getThemeWallpaper().dim;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : getThemeWallpaper().dim;
+};
+
+export const setWallpaperDim = (value: number) => {
+  const clamped = Math.min(1, Math.max(0, value));
+  scopedSet(WALLPAPER_DIM_KEY, String(clamped));
+  applyWallpaper();
+};
+
+export const isWallpaperBlurred = (): boolean => scopedGet(WALLPAPER_BLUR_KEY) === '1';
+
+export const setWallpaperBlurred = (on: boolean) => {
+  if (on) scopedSet(WALLPAPER_BLUR_KEY, '1');
+  else scopedRemove(WALLPAPER_BLUR_KEY);
+  applyWallpaper();
+};
+
+/** 현재 테마의 배경화면을 CSS 변수로 적용합니다. */
+export const applyWallpaper = (themeId?: string) => {
+  if (typeof document === 'undefined') return;
+  const wallpaper = getThemeWallpaper(themeId);
+  const root = document.documentElement;
+  root.style.setProperty('--nx-wallpaper', `url("${wallpaperUrl(wallpaper.id)}")`);
+  root.style.setProperty('--nx-wallpaper-dim', `${Math.round(getWallpaperDim() * 100)}%`);
+  root.style.setProperty('--nx-wallpaper-blur', isWallpaperBlurred() ? '7px' : '0px');
+};
+
+/* ============================================================
+   테마별 버튼 스타일 토큰 (index.css 와 같은 값을 화면에서도 보여줄 때 사용)
+   ============================================================ */
+export interface ThemeButtonStyle {
+  radius: string;
+  radiusLabel: string;
+  texture: 'paper' | 'flat' | 'soft' | 'glass' | 'cozy';
+  description: string;
+}
+
+export const THEME_BUTTON_STYLE: Record<string, ThemeButtonStyle> = {
+  cream: { radius: '0.75rem', radiusLabel: '12px · 둥근 사각', texture: 'paper', description: '종이 질감 + 옅은 보더' },
+  silver: { radius: '0.75rem', radiusLabel: '12px · 둥근 사각', texture: 'flat', description: '무광 알루미늄 그레이' },
+  chic: { radius: '0.3rem', radiusLabel: '5px · 샤프한 각', texture: 'flat', description: '각진 모서리 + 1px 절제된 보더' },
+  dark: { radius: '0.375rem', radiusLabel: '6px · 각진 편', texture: 'flat', description: '눈이 편한 무광 다크' },
+  bubble: { radius: '9999px', radiusLabel: '알약형 · 완전 둥글게', texture: 'soft', description: '말랑 그림자 + 핑크 보더' },
+  puppy: { radius: '1.125rem', radiusLabel: '18px · 폭신 라운드', texture: 'soft', description: '크림 보더 + 푹신한 그림자' },
+  cat: { radius: '1.125rem', radiusLabel: '18px · 폭신 라운드', texture: 'soft', description: '살구빛 보더 + 말랑 그림자' },
+  xmas: { radius: '1rem', radiusLabel: '16px · 포근 라운드', texture: 'cozy', description: '레드 포인트 테두리 + 초록 그림자' },
+  winter: { radius: '1rem', radiusLabel: '16px · 포근 라운드', texture: 'cozy', description: '아이스 블루 보더 + 서리 질감' },
+  lavender: { radius: '1rem', radiusLabel: '16px · 부드러운 라운드', texture: 'soft', description: '보라빛 그림자' },
+  midnight: { radius: '0.875rem', radiusLabel: '14px · 라운드', texture: 'glass', description: '네이비 글래스 + 달빛 보더' },
+  forest: { radius: '0.875rem', radiusLabel: '14px · 라운드', texture: 'soft', description: '초록 그림자 + 잎빛 보더' },
+  sunset: { radius: '1rem', radiusLabel: '16px · 부드러운 라운드', texture: 'soft', description: '코랄 그림자' },
+  space: { radius: '0.875rem', radiusLabel: '14px · 글래스', texture: 'glass', description: '반투명 글래스 + 별빛 네온 보더' },
+  aurora: { radius: '0.875rem', radiusLabel: '14px · 글래스', texture: 'glass', description: '오로라 글래스 + 민트 글로우' },
+  astro: { radius: '0.875rem', radiusLabel: '14px · 글래스', texture: 'glass', description: '반투명 글래스 + 스타 글로우' },
+  city: { radius: '0.9rem', radiusLabel: '14px · 글래스', texture: 'glass', description: '노을빛 글래스 + 코랄 글로우' },
+};
+
+export const getThemeButtonStyle = (themeId?: string): ThemeButtonStyle =>
+  THEME_BUTTON_STYLE[themeId || getTheme()] || THEME_BUTTON_STYLE.cream;
 
 export const THEME_PATTERNS = {
   puppy: PUPPY_PATTERN,

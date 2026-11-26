@@ -5,6 +5,7 @@
 // ==========================================
 
 import { DEFAULT_FIREBASE_CONFIG, DEFAULT_YOUTUBE_API_KEY } from '../config/firebase';
+import { scopedGet, scopedSet, scopedRemove } from './accountScope';
 
 export interface FirebaseAppConfig {
   projectId: string;
@@ -19,6 +20,7 @@ export interface FirebaseAppConfig {
 
 const FIREBASE_KEY = 'workchat_custom_firebase_config';
 const GEMINI_KEY = 'workchat_gemini_api_key_v1';
+const GEMINI_MODEL_KEY = 'workchat_gemini_model_v1';
 const YOUTUBE_KEY = 'workchat_youtube_api_key_v1';
 export const SETTINGS_EVENT = 'workchat-settings-changed';
 
@@ -117,16 +119,23 @@ export const parseFirebaseConfigText = (text: string): FirebaseAppConfig | null 
 
 /* ---------------- Gemini API 키 ---------------- */
 
-export const getGeminiApiKey = (): string => {
-  if (typeof window === 'undefined') return '';
-  return (localStorage.getItem(GEMINI_KEY) || '').trim();
-};
+// Gemini API 키 · 모델은 계정(uid)별로 따로 저장합니다.
+export const getGeminiApiKey = (): string => (scopedGet(GEMINI_KEY) || '').trim();
 
 export const saveGeminiApiKey = (key: string) => {
-  if (typeof window === 'undefined') return;
   const trimmed = (key || '').trim();
-  if (trimmed) localStorage.setItem(GEMINI_KEY, trimmed);
-  else localStorage.removeItem(GEMINI_KEY);
+  if (trimmed) scopedSet(GEMINI_KEY, trimmed);
+  else scopedRemove(GEMINI_KEY);
+  notify();
+};
+
+/** 사용자가 직접 고른 Gemini 모델 (없으면 빈 문자열 = 앱 기본값 사용) */
+export const getGeminiModel = (): string => (scopedGet(GEMINI_MODEL_KEY) || '').trim();
+
+export const saveGeminiModel = (model: string) => {
+  const trimmed = (model || '').trim();
+  if (trimmed) scopedSet(GEMINI_MODEL_KEY, trimmed);
+  else scopedRemove(GEMINI_MODEL_KEY);
   notify();
 };
 

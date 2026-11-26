@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Palette, RotateCcw, Snowflake, Type } from 'lucide-react';
+import { Check, Image as ImageIcon, Palette, RotateCcw, Snowflake, Sparkles, Type } from 'lucide-react';
 import { storage } from '../storage';
 import {
   applyFont,
@@ -8,9 +8,19 @@ import {
   bubbleBorderColor,
   contrastText,
   FONT_PRESETS,
+  getChosenWallpaperId,
   getFont,
   getTheme,
+  getThemeButtonStyle,
+  getThemeWallpaper,
+  getWallpaperDim,
   isSnowEnabled,
+  isWallpaperBlurred,
+  setChosenWallpaper,
+  setWallpaperBlurred,
+  setWallpaperDim,
+  WALLPAPER_LIBRARY,
+  wallpaperUrl,
   markBubbleCustomized,
   setSnowEnabled,
   THEME_BUBBLE_DEFAULTS,
@@ -42,6 +52,13 @@ export const ThemeSettings: React.FC = () => {
   const [colors, setColors] = useState<BubbleColors>(() => storage.getBubbleColors());
   const [font, setFont] = useState<string>(() => getFont());
   const [snow, setSnow] = useState<boolean>(() => isSnowEnabled());
+  const [wallpaperId, setWallpaperId] = useState<string | null>(() => getChosenWallpaperId());
+  const [dim, setDim] = useState<number>(() => getWallpaperDim());
+  const [blurred, setBlurred] = useState<boolean>(() => isWallpaperBlurred());
+  const buttonStyle = getThemeButtonStyle(theme);
+  const activeWallpaper = wallpaperId
+    ? WALLPAPER_LIBRARY.find((item) => item.id === wallpaperId) || getThemeWallpaper(theme)
+    : getThemeWallpaper(theme);
 
   useEffect(() => {
     applyTheme(theme);
@@ -232,6 +249,113 @@ export const ThemeSettings: React.FC = () => {
         </div>
       </div>
 
+      {/* ── 배경화면 (테마 감성 배경 일러스트 · 앱에 직접 제작) ── */}
+      <div className="rounded-2xl p-4" style={cardStyle} data-testid="theme-wallpaper-card">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-bold text-sm">
+            <ImageIcon className="w-4 h-4" style={{ color: 'var(--nx-accent)' }} />
+            배경화면
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--nx-surface-2)', color: 'var(--nx-text-muted)' }}>
+            {activeWallpaper.name}
+          </span>
+        </div>
+        <p className="text-[12px] leading-5 mt-1.5" style={{ color: 'var(--nx-text-muted)' }}>
+          테마마다 어울리는 감성 배경이 깔립니다. 대화가 잘 읽히도록 배경 위에 덮는 농도를 직접 조절할 수 있어요.
+        </p>
+
+        <div
+          className="mt-3 h-28 rounded-xl bg-cover bg-center relative overflow-hidden"
+          style={{ border: '1px solid var(--nx-border)', backgroundImage: `url("${wallpaperUrl(activeWallpaper.id)}")` }}
+          data-testid="wallpaper-preview"
+        >
+          <div className="absolute inset-0" style={{ background: `color-mix(in srgb, var(--nx-bg) ${Math.round(dim * 100)}%, transparent)` }} />
+          <div className="absolute inset-x-2 bottom-2 space-y-1">
+            <div className="h-4 w-2/3 rounded-full" style={{ background: 'var(--nx-surface)', opacity: 0.95 }} />
+            <div className="h-4 w-1/2 rounded-full ml-auto" style={{ background: 'var(--nx-primary)', opacity: 0.95 }} />
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-8 gap-1.5">
+          {WALLPAPER_LIBRARY.map((item) => {
+            const active = activeWallpaper.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setChosenWallpaper(item.id);
+                  setWallpaperId(item.id);
+                  setDim(getWallpaperDim());
+                }}
+                data-testid={`wallpaper-${item.id}`}
+                title={item.name}
+                className="relative aspect-square bg-cover bg-center overflow-hidden"
+                style={{ border: `2px solid ${active ? 'var(--nx-accent)' : 'var(--nx-border)'}`, borderRadius: 'var(--nx-btn-radius)' }}
+                aria-label={`${item.name} 배경화면`}
+              >
+                <img src={wallpaperUrl(item.id, true)} alt={item.name} loading="lazy" className="w-full h-full object-cover" draggable={false} />
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-bold" style={{ color: 'var(--nx-text-strong)' }}>
+            <span>배경 덮개 (가독성)</span>
+            <span className="font-mono text-[10px]" style={{ color: 'var(--nx-text-muted)' }}>{Math.round(dim * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(dim * 100)}
+            onChange={(event) => {
+              const next = Number(event.target.value) / 100;
+              setDim(next);
+              setWallpaperDim(next);
+            }}
+            data-testid="wallpaper-dim"
+            className="w-full accent-[var(--nx-accent)]"
+            aria-label="배경 덮개 농도"
+          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !blurred;
+                setBlurred(next);
+                setWallpaperBlurred(next);
+              }}
+              data-testid="wallpaper-blur-toggle"
+              className="px-2.5 py-1 text-[11px] font-bold flex items-center gap-1"
+              style={{
+                background: blurred ? 'var(--nx-primary)' : 'var(--nx-surface-2)',
+                color: blurred ? 'var(--nx-on-primary)' : 'var(--nx-text-muted)',
+              }}
+            >
+              <Sparkles className="w-3 h-3" /> 흐리게 보기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setChosenWallpaper(null);
+                setWallpaperId(null);
+                setDim(getThemeWallpaper(theme).dim);
+                setWallpaperDim(getThemeWallpaper(theme).dim);
+              }}
+              className="px-2.5 py-1 text-[11px] font-bold flex items-center gap-1"
+              style={{ background: 'var(--nx-surface-2)', color: 'var(--nx-text-muted)' }}
+            >
+              <RotateCcw className="w-3 h-3" /> 테마 기본 배경
+            </button>
+            <span className="text-[10px]" style={{ color: 'var(--nx-text-muted)' }}>
+              버튼: {buttonStyle.radiusLabel} · {buttonStyle.description}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* ── 테마 ── */}
       <div className="rounded-2xl p-4" style={cardStyle}>
         <div className="flex items-center gap-2 font-bold text-sm">
@@ -256,10 +380,19 @@ export const ThemeSettings: React.FC = () => {
                   color: 'var(--nx-text)',
                 }}
               >
-                <div className="flex gap-1 mb-1.5">
-                  {preset.swatch.map((color) => (
-                    <span key={color} className="w-4 h-4 rounded-full" style={{ background: color, border: '1px solid rgba(0,0,0,0.12)' }} />
-                  ))}
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex gap-1">
+                    {preset.swatch.map((color) => (
+                      <span key={color} className="w-4 h-4 rounded-full" style={{ background: color, border: '1px solid rgba(0,0,0,0.12)' }} />
+                    ))}
+                  </div>
+                  <img
+                    src={wallpaperUrl(getThemeWallpaper(preset.id).id, true)}
+                    alt=""
+                    loading="lazy"
+                    className="w-8 h-5 object-cover rounded-sm"
+                    draggable={false}
+                  />
                 </div>
                 <p className="text-[11px] font-bold leading-tight">{preset.name}</p>
                 <p className="text-[9.5px] leading-tight" style={{ color: 'var(--nx-text-muted)' }}>

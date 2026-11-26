@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { Message, User } from '../types';
 import { callGeminiServerChat, GeminiFileAttachment } from '../services/geminiService';
+import { DEFAULT_GEMINI_MODELS, DEFAULT_GEMINI_MODEL, normalizeModelId } from '../services/geminiModels';
+import { getGeminiModel, saveGeminiModel } from '../services/appConfig';
 
 interface GeminiAIPanelProps {
   isOpen: boolean;
@@ -47,6 +49,14 @@ export const GeminiAIPanel: React.FC<GeminiAIPanelProps> = ({
   const [includeFullChatContext, setIncludeFullChatContext] = useState(true);
   const [pendingAttachments, setPendingAttachments] = useState<GeminiFileAttachment[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // 이 계정에서 사용할 Gemini 모델 (설정 → AI 탭과 같은 값)
+  const [model, setModel] = useState<string>(() => normalizeModelId(getGeminiModel()) || DEFAULT_GEMINI_MODEL);
+
+  useEffect(() => {
+    const sync = () => setModel(normalizeModelId(getGeminiModel()) || DEFAULT_GEMINI_MODEL);
+    window.addEventListener('workchat-settings-changed', sync);
+    return () => window.removeEventListener('workchat-settings-changed', sync);
+  }, []);
 
   const GEMINI_CHAT_KEY = `workchat_gemini_chat_history_v6_${currentUser.id}`;
   const [aiChatHistory, setAiChatHistory] = useState<AIChatMessage[]>(() => {
@@ -61,7 +71,7 @@ export const GeminiAIPanel: React.FC<GeminiAIPanelProps> = ({
       {
         id: 'init_welcome',
         sender: 'gemini',
-        text: `안녕하세요 ${currentUser.name}님! **Google Gemini 3.7 AI 협업 비서**입니다 ✨\n\n대화방의 업무 내용, 문서 작성, 일정 요약, 아이디어 기획 등 무엇이든 물어보세요. 실시간으로 즉시 답변해 드립니다!`,
+        text: `안녕하세요 ${currentUser.name}님! **Google Gemini AI 협업 비서**입니다 ✨\n\n대화방의 업무 내용, 문서 작성, 일정 요약, 아이디어 기획 등 무엇이든 물어보세요. 실시간으로 즉시 답변해 드립니다!`,
         timestamp: '방금 전',
       },
     ];
@@ -150,7 +160,7 @@ export const GeminiAIPanel: React.FC<GeminiAIPanelProps> = ({
         message: promptToSend,
         fullChatContext: chatContext,
         attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
-        model: 'gemini-3.7-flash',
+        model,
       });
 
       const geminiMsg: AIChatMessage = {
@@ -190,9 +200,25 @@ export const GeminiAIPanel: React.FC<GeminiAIPanelProps> = ({
           <div>
             <div className="text-xs font-bold text-[#2C2520] flex items-center gap-1.5">
               <span>Google Gemini AI</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-[#E6DCD0] text-[#3E2723] font-mono font-semibold">
-                gemini-3.7-flash
-              </span>
+              <select
+                value={model}
+                onChange={(event) => {
+                  setModel(event.target.value);
+                  saveGeminiModel(event.target.value);
+                }}
+                title="사용할 Gemini 모델 선택"
+                data-testid="gemini-model-select-panel"
+                className="text-[10px] px-1.5 py-0.5 rounded-md bg-[#E6DCD0] text-[#3E2723] font-mono font-semibold outline-none cursor-pointer max-w-[150px]"
+              >
+                {(DEFAULT_GEMINI_MODELS.some((option) => option.id === model)
+                  ? DEFAULT_GEMINI_MODELS
+                  : [{ id: model, label: model, desc: '', source: 'key' as const }, ...DEFAULT_GEMINI_MODELS]
+                ).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.id}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="text-[10px] text-[#7A6A5C]">
               #{spaceName} 실시간 협업 AI
@@ -207,7 +233,7 @@ export const GeminiAIPanel: React.FC<GeminiAIPanelProps> = ({
               const defaultMsg: AIChatMessage = {
                 id: 'init_welcome',
                 sender: 'gemini',
-                text: `안녕하세요 ${currentUser.name}님! **Google Gemini 3.7 AI 협업 비서**입니다 ✨\n\n대화방의 업무 내용, 문서 작성, 일정 요약, 아이디어 기획 등 무엇이든 물어보세요. 실시간으로 즉시 답변해 드립니다!`,
+                text: `안녕하세요 ${currentUser.name}님! **Google Gemini AI 협업 비서**입니다 ✨\n\n대화방의 업무 내용, 문서 작성, 일정 요약, 아이디어 기획 등 무엇이든 물어보세요. 실시간으로 즉시 답변해 드립니다!`,
                 timestamp: '방금 전',
               };
               setAiChatHistory([defaultMsg]);

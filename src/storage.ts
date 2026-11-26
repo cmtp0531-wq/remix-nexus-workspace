@@ -1,3 +1,4 @@
+import { scopedGet, scopedSet, scopedRemove } from './services/accountScope';
 import { User, Space, Message, TaskItem, FriendRequest, Friendship, DriveDocument, CalendarEvent } from './types';
 
 // 기본 공용 라운지: 예시 메시지·가짜 멤버 없이 '빈 상태'로 시작합니다.
@@ -60,9 +61,9 @@ export const broadcastSync = (type: string, payload?: any) => {
 export const storage = {
   getUsers: (): User[] => {
     try {
-      const data = localStorage.getItem(USERS_KEY);
+      const data = scopedGet(USERS_KEY);
       if (!data) {
-        localStorage.setItem(USERS_KEY, JSON.stringify(DEFAULT_SEED_USERS));
+        scopedSet(USERS_KEY, JSON.stringify(DEFAULT_SEED_USERS));
         return DEFAULT_SEED_USERS;
       }
       const parsed = JSON.parse(data);
@@ -72,28 +73,28 @@ export const storage = {
     }
   },
   saveUsers: (users: User[]) => {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    scopedSet(USERS_KEY, JSON.stringify(users));
     broadcastSync('USERS_UPDATED');
   },
 
   getCurrentUser: (): User | null => {
     try {
-      const data = localStorage.getItem(CURRENT_USER_KEY);
+      const data = scopedGet(CURRENT_USER_KEY);
       return data ? JSON.parse(data) : DEFAULT_LOCAL_USER;
     } catch {
       return DEFAULT_LOCAL_USER;
     }
   },
   setCurrentUser: (user: User | null) => {
-    if (!user) localStorage.removeItem(CURRENT_USER_KEY);
-    else localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+    if (!user) scopedRemove(CURRENT_USER_KEY);
+    else scopedSet(CURRENT_USER_KEY, JSON.stringify(user));
   },
 
   getSpaces: (): Space[] => {
     try {
-      const data = localStorage.getItem(SPACES_KEY);
+      const data = scopedGet(SPACES_KEY);
       if (!data) {
-        localStorage.setItem(SPACES_KEY, JSON.stringify([DEFAULT_PUBLIC_SPACE]));
+        scopedSet(SPACES_KEY, JSON.stringify([DEFAULT_PUBLIC_SPACE]));
         return [DEFAULT_PUBLIC_SPACE];
       }
       const parsed: Space[] = JSON.parse(data);
@@ -106,15 +107,15 @@ export const storage = {
     }
   },
   saveSpaces: (spaces: Space[]) => {
-    localStorage.setItem(SPACES_KEY, JSON.stringify(spaces));
+    scopedSet(SPACES_KEY, JSON.stringify(spaces));
     broadcastSync('SPACES_UPDATED');
   },
 
   getMessages: (): Record<string, Message[]> => {
     try {
-      const data = localStorage.getItem(MESSAGES_KEY);
+      const data = scopedGet(MESSAGES_KEY);
       if (!data) {
-        localStorage.setItem(MESSAGES_KEY, JSON.stringify(INITIAL_MESSAGES));
+        scopedSet(MESSAGES_KEY, JSON.stringify(INITIAL_MESSAGES));
         return INITIAL_MESSAGES;
       }
       const parsed = JSON.parse(data);
@@ -132,52 +133,52 @@ export const storage = {
     }
   },
   saveMessages: (messages: Record<string, Message[]>) => {
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
+    scopedSet(MESSAGES_KEY, JSON.stringify(messages));
     broadcastSync('MESSAGES_UPDATED');
   },
 
   getTasks: (): TaskItem[] => {
     try {
-      const data = localStorage.getItem(TASKS_KEY);
+      const data = scopedGet(TASKS_KEY);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
     }
   },
   saveTasks: (tasks: TaskItem[]) => {
-    localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+    scopedSet(TASKS_KEY, JSON.stringify(tasks));
     broadcastSync('TASKS_UPDATED');
   },
 
   getFriendRequests: (): FriendRequest[] => {
     try {
-      const data = localStorage.getItem(REQUESTS_KEY);
+      const data = scopedGet(REQUESTS_KEY);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
     }
   },
   saveFriendRequests: (requests: FriendRequest[]) => {
-    localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
+    scopedSet(REQUESTS_KEY, JSON.stringify(requests));
     broadcastSync('REQUESTS_UPDATED');
   },
 
   getFriendships: (): Friendship[] => {
     try {
-      const data = localStorage.getItem(FRIENDSHIPS_KEY);
+      const data = scopedGet(FRIENDSHIPS_KEY);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
     }
   },
   saveFriendships: (friendships: Friendship[]) => {
-    localStorage.setItem(FRIENDSHIPS_KEY, JSON.stringify(friendships));
+    scopedSet(FRIENDSHIPS_KEY, JSON.stringify(friendships));
     broadcastSync('FRIENDSHIPS_UPDATED');
   },
 
   getDriveDocuments: (): DriveDocument[] => {
     try {
-      const data = localStorage.getItem(DRIVE_DOCS_KEY);
+      const data = scopedGet(DRIVE_DOCS_KEY);
       if (!data) {
         return [];
       }
@@ -190,7 +191,7 @@ export const storage = {
     }
   },
   saveDriveDocuments: (docs: DriveDocument[]) => {
-    localStorage.setItem(DRIVE_DOCS_KEY, JSON.stringify(docs));
+    scopedSet(DRIVE_DOCS_KEY, JSON.stringify(docs));
     broadcastSync('DRIVE_DOCS_UPDATED');
   },
   updateDriveDocument: (id: string, updates: Partial<DriveDocument>) => {
@@ -225,7 +226,7 @@ export const storage = {
   /** 나에게만 메시지를 가리기(상대 메시지 숨김) — 사용자별 목록으로 저장 */
   getHiddenMessageIds: (userId: string): string[] => {
     try {
-      const raw = localStorage.getItem(HIDDEN_MESSAGES_KEY);
+      const raw = scopedGet(HIDDEN_MESSAGES_KEY);
       const map = raw ? JSON.parse(raw) : {};
       const list = map?.[userId];
       return Array.isArray(list) ? list : [];
@@ -235,12 +236,12 @@ export const storage = {
   },
   hideMessageForUser: (userId: string, messageId: string) => {
     try {
-      const raw = localStorage.getItem(HIDDEN_MESSAGES_KEY);
+      const raw = scopedGet(HIDDEN_MESSAGES_KEY);
       const map = raw ? JSON.parse(raw) : {};
       const list: string[] = Array.isArray(map[userId]) ? map[userId] : [];
       if (!list.includes(messageId)) list.push(messageId);
       map[userId] = list;
-      localStorage.setItem(HIDDEN_MESSAGES_KEY, JSON.stringify(map));
+      scopedSet(HIDDEN_MESSAGES_KEY, JSON.stringify(map));
       broadcastSync('MESSAGES_UPDATED');
     } catch {
       /* 저장 실패 시 세션 내 상태만 반영 */
@@ -248,21 +249,21 @@ export const storage = {
   },
   getTheme: (): string => {
     try {
-      return localStorage.getItem(THEME_KEY) || 'cream';
+      return scopedGet(THEME_KEY) || 'cream';
     } catch {
       return 'cream';
     }
   },
   saveTheme: (theme: string) => {
     try {
-      localStorage.setItem(THEME_KEY, theme);
+      scopedSet(THEME_KEY, theme);
     } catch {
       /* ignore */
     }
   },
   getBubbleColors: (): { mine: string; other: string; mineText?: string; otherText?: string } => {
     try {
-      const raw = localStorage.getItem(BUBBLE_COLORS_KEY);
+      const raw = scopedGet(BUBBLE_COLORS_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
       return {
         mine: parsed?.mine || '#1A73E8',
@@ -276,7 +277,7 @@ export const storage = {
   },
   saveBubbleColors: (colors: { mine: string; other: string; mineText?: string; otherText?: string }) => {
     try {
-      localStorage.setItem(BUBBLE_COLORS_KEY, JSON.stringify(colors));
+      scopedSet(BUBBLE_COLORS_KEY, JSON.stringify(colors));
       broadcastSync('MESSAGES_UPDATED');
     } catch {
       /* ignore */
@@ -285,14 +286,14 @@ export const storage = {
 
   getCalendarEvents: (): CalendarEvent[] => {
     try {
-      const data = localStorage.getItem(CALENDAR_EVENTS_KEY);
+      const data = scopedGet(CALENDAR_EVENTS_KEY);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
     }
   },
   saveCalendarEvents: (events: CalendarEvent[]) => {
-    localStorage.setItem(CALENDAR_EVENTS_KEY, JSON.stringify(events));
+    scopedSet(CALENDAR_EVENTS_KEY, JSON.stringify(events));
     broadcastSync('CALENDAR_EVENTS_UPDATED');
   },
   updateCalendarEventRsvp: (eventId: string, userId: string, status: 'accepted' | 'tentative' | 'declined') => {

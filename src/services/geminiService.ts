@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { Message, DriveDocument, CalendarEvent, TaskItem } from '../types';
-import { getGeminiApiKey, getYouTubeApiKey } from './appConfig';
+import { getGeminiApiKey, getGeminiModel, getYouTubeApiKey } from './appConfig';
+import { getModelCandidates, normalizeModelId } from './geminiModels';
 
 export interface GeminiFileAttachment {
   name: string;
@@ -15,7 +16,8 @@ export interface GeminiFileAttachment {
 // 3) 둘 다 없으면 → 무엇을 하면 되는지 알려주는 안내 문구 반환
 // ==========================================
 
-const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
+/** 사용자가 설정에서 고른 모델이 항상 첫 후보가 됩니다. */
+const modelCandidates = (): string[] => getModelCandidates(getGeminiModel());
 
 export const MISSING_KEY_MESSAGE =
   'Gemini API 키가 아직 없습니다. 오른쪽 위 설정(⚙) → AI 탭에서 Google AI Studio에서 발급받은 API 키를 저장하면 바로 대화할 수 있습니다.';
@@ -73,7 +75,7 @@ const generateWithClientKey = async ({ prompt, systemInstruction, attachments }:
   });
 
   let lastError: any = null;
-  for (const model of MODEL_CANDIDATES) {
+  for (const model of modelCandidates()) {
     try {
       const response = await ai.models.generateContent({
         model,
@@ -159,7 +161,7 @@ export const callGeminiServerChat = async (params: {
     message: params.message,
     fullChatContext: params.fullChatContext,
     attachments: params.attachments,
-    model: params.model || 'gemini-2.5-flash',
+    model: normalizeModelId(params.model || getGeminiModel() || 'gemini-2.5-flash'),
   });
   if (serverData?.reply) return serverData.reply as string;
 
@@ -183,7 +185,7 @@ export const summarizeConversationWithGemini = async (messages: Message[]): Prom
     message:
       '아래 대화의 핵심 사항을 차분하고 명확한 한국어로 딱 3줄로 요약해 주세요. 각 줄은 "• "로 시작하고 다른 설명은 붙이지 마세요.',
     fullChatContext: chatContext,
-    model: 'gemini-2.5-flash',
+    model: getGeminiModel() || 'gemini-2.5-flash',
   });
 
   const lines = answer
@@ -562,7 +564,7 @@ ${context.tasks.map((t) => `• ${t.title} (담당자: ${t.assigneeName}, 상태
   return callGeminiServerChat({
     message: query,
     fullChatContext: fullContextText,
-    model: 'gemini-2.5-flash',
+    model: getGeminiModel() || 'gemini-2.5-flash',
   });
 };
 

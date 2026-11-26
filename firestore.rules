@@ -34,6 +34,9 @@ service cloud.firestore {
         allow read: if isSignedIn() && request.auth.uid == userId;
         allow create, update, delete: if isSignedIn() && request.auth.uid == userId;
       }
+
+      // 계정별 설정(테마·글씨체·말풍선 색·Gemini 모델)은 users/{uid}.settings 필드에 저장됩니다.
+      // (위 update 규칙이 본인 문서만 허용하므로 settings 도 본인만 수정할 수 있습니다.)
     }
 
     // 친구 요청 (보낸 사람은 만들기, 받는 사람은 수락/거절만)
@@ -57,11 +60,28 @@ service cloud.firestore {
       allow delete: if false;
 
       // Subcollection: messages
+      // - 투표(Poll) 결과는 메시지 문서의 attachments[].options[].voterIds 에
+      //   arrayUnion/arrayRemove 로 기록되므로, 같은 방 참여자가 갱신할 수 있어야 합니다.
       match /messages/{messageId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && isValidId(messageId) && incoming().senderId == request.auth.uid;
         allow update: if isSignedIn() && isValidId(messageId);
         allow delete: if isSignedIn() && existing().senderId == request.auth.uid;
+      }
+
+      // Subcollection: polls (투표 현황 전용 저장소)
+      // - votes: { <uid>: <optionId> } 형태. 각 사용자는 자기 키만 바꿀 수 있습니다.
+      match /polls/{pollId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(pollId) && incoming().creatorId == request.auth.uid;
+        allow update: if isSignedIn() && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'closed']) &&
+          (
+            !('votes' in request.resource.data) ||
+            request.resource.data.votes.diff(resource.data.votes).affectedKeys().hasOnly([request.auth.uid])
+          )
+        );
+        allow delete: if isSignedIn() && existing().creatorId == request.auth.uid;
       }
 
       // Subcollection: typing (본인 상태만 쓰기)

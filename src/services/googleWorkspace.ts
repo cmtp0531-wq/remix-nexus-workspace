@@ -243,6 +243,53 @@ export const subscribeToCloudChatMessages = (spaceId: string, callback: (message
   });
 };
 
+// ==========================================
+// 실시간 투표(Poll) — 같은 방의 모든 참여자가 같은 투표 현황을 봅니다.
+// public/배포된 규칙이 이미 "로그인한 사용자는 메시지 수정 가능"이므로
+// 투표 결과(voterIds)를 메시지 문서에 원자적(arrayUnion/arrayRemove)으로 반영합니다.
+// ==========================================
+export interface PollVoteParams {
+  spaceId: string;
+  messageId: string;
+  attachmentIndex: number;
+  options: { id: string; voterIds: string[] }[];
+  /** null 이면 내 표를 취소합니다. */
+  optionId: string | null;
+}
+
+export const savePollVoteToCloud = async ({
+  spaceId,
+  messageId,
+  attachmentIndex,
+  options,
+  optionId,
+}: PollVoteParams): Promise<void> => {
+  if (!auth?.currentUser || !firestore) throw new Error('Google 로그인 세션이 없습니다.');
+  const uid = auth.currentUser.uid;
+  const { arrayRemove, arrayUnion, updateDoc } = await import('firebase/firestore');
+
+  // 1) 모든 보기에서 내 표를 지우고(단일 선택), 고른 보기에만 다시 넣습니다.
+  const updates: Record<string, unknown> = {};
+  options.forEach((_, index) => {
+    updates[`attachments.${attachmentIndex}.options.${index}.voterIds`] = arrayRemove(uid);
+  });
+  if (optionId) {
+    const targetIndex = options.findIndex((option) => option.id === optionId);
+    if (targetIndex >= 0) {
+      updates[`attachments.${attachmentIndex}.options.${targetIndex}.voterIds`] = arrayUnion(uid);
+    }
+  }
+  await updateDoc(doc(firestore, 'spaces', spaceId, 'messages', messageId), updates);
+};
+
+/** 같은 스페이스의 메시지 목록을 다시 불러와 투표 현황을 즉시 맞춥니다. */
+export const reloadCloudChatMessages = async (spaceId: string): Promise<any[]> => {
+  if (!firestore) return [];
+  const { getDocs } = await import('firebase/firestore');
+  const snapshot = await getDocs(query(collection(firestore, 'spaces', spaceId, 'messages'), orderBy('createdAt', 'asc')));
+  return snapshot.docs.map((item) => item.data());
+};
+
 export const saveUserProfileToFirestore = async (user: any) => {
   if (!auth?.currentUser || !firestore) return;
   try {

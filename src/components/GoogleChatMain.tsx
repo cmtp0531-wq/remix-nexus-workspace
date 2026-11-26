@@ -61,7 +61,8 @@ import {
   Bell,
   PanelLeftOpen,
   PanelLeftClose,
-  Languages
+  Languages,
+  ArrowDown
 } from 'lucide-react';
 import { 
   Space, 
@@ -88,7 +89,8 @@ import {
   searchYouTubeVideos
 } from '../services/geminiService';
 import { storage } from '../storage';
-import { contrastText, bubbleBorderColor } from '../theme';
+import { contrastText, bubbleBorderColor, getThemeWallpaperId, wallpaperUrl } from '../theme';
+import { useThemeIcons } from '../themeIcons';
 import { LocationPickerModal } from './LocationPickerModal';
 import { YouTubeHubModal } from './YouTubeHubModal';
 import { avatarSrc, handleAvatarError } from './UserAvatar';
@@ -507,6 +509,20 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   const [canvasText, setCanvasText] = useState(space.canvasContent || '');
   const [canvasSavedToast, setCanvasSavedToast] = useState(false);
 
+  // 테마별 버튼 아이콘 (예: 우주비행사 → 전송 = 로켓)
+  const themeIcons = useThemeIcons();
+  const SendIcon = themeIcons.send;
+  const PollIcon = themeIcons.poll;
+  const CalendarThemeIcon = themeIcons.calendar;
+  const LocationIcon = themeIcons.location;
+  const YoutubeThemeIcon = themeIcons.youtube;
+  const MicThemeIcon = themeIcons.mic;
+  const AttachThemeIcon = themeIcons.attach;
+  const EmojiThemeIcon = themeIcons.emoji;
+  const SearchThemeIcon = themeIcons.search;
+  const SettingsThemeIcon = themeIcons.settings;
+  const ThemeDriveIcon = themeIcons.drive;
+
   // Quick Poll Modal
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [showMeetMenu, setShowMeetMenu] = useState(false);
@@ -637,9 +653,78 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // ── 스크롤 제어 ─────────────────────────────────────────────
+  // 원칙: 사용자가 직접 움직이는 것 말고는 절대 자동으로 스크롤하지 않습니다.
+  //  · 새 메시지가 와도 이미 맨 아래에 붙어 있을 때만 따라가고,
+  //    위쪽을 보고 있으면 '새 메시지 N개 ↓' 버튼만 띄웁니다.
+  //  · 삭제·가리기·수정·반응·타이핑·리사이즈 등에는 스크롤을 건드리지 않습니다.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRefLegacy = messagesEndRef; // (기존 ref 유지)
+  const atBottomRef = useRef(true);
+  const lastMessageIdRef = useRef<string | null>(null);
+  const lastMessageCountRef = useRef(0);
+  const selfSendAtRef = useRef(0);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+
+  const distanceFromBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return 0;
+    return el.scrollHeight - el.scrollTop - el.clientHeight;
+  };
+
+  const handleMessagesScroll = () => {
+    const gap = distanceFromBottom();
+    atBottomRef.current = gap < 48;
+    // 130px 이상 올라갔을 때만 버튼을 보여줍니다.
+    setShowJumpToBottom(gap > 130);
+    if (gap < 48) setNewMessageCount(0);
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+    atBottomRef.current = true;
+    setShowJumpToBottom(false);
+    setNewMessageCount(0);
+  };
+
+  // 채팅방을 옮겼을 때만 맨 아래에서 시작합니다(사용자가 방을 고른 동작).
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+    scrollToBottom('auto');
+    lastMessageIdRef.current = null;
+    lastMessageCountRef.current = 0;
+    setNewMessageCount(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [space.id]);
+
+  // 새 메시지 '추가'일 때만, 그리고 조건을 만족할 때만 따라갑니다.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    const previousId = lastMessageIdRef.current;
+    const previousCount = lastMessageCountRef.current;
+    lastMessageIdRef.current = last?.id ?? null;
+    lastMessageCountRef.current = messages.length;
+    if (!last) return;
+
+    const appended = messages.length > previousCount && last.id !== previousId;
+    if (!appended) return;
+
+    const justSentByMe = last.senderId === currentUser.id && Date.now() - selfSendAtRef.current < 4000;
+    if (justSentByMe) {
+      scrollToBottom('smooth');
+      return;
+    }
+    if (atBottomRef.current) {
+      // 이미 맨 아래를 보고 있으면 새 메시지를 따라갑니다.
+      scrollToBottom('smooth');
+      return;
+    }
+    // 위쪽 대화를 읽는 중 → 강제로 내리지 않고 배지만 표시
+    setNewMessageCount((count) => count + Math.max(1, messages.length - previousCount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   useEffect(() => {
     setCanvasText(space.canvasContent || `# #${space.name} 실시간 협업 캔버스\n\n- 팀 목표 및 회의 안건\n- 참고 링크 및 리소스\n- 빠른 메모를 기록해보세요!`);
@@ -770,6 +855,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       });
     }
 
+    selfSendAtRef.current = Date.now();
     onSendMessage(
       clean,
       finalAttachments.length > 0 ? finalAttachments : undefined,
@@ -1579,6 +1665,9 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
             {poll.options.map((opt) => {
               const hasVoted = opt.voterIds.includes(currentUser.id);
               const percentage = totalVotes > 0 ? Math.round((opt.voterIds.length / totalVotes) * 100) : 0;
+              const voterNames = opt.voterIds
+                .map((id) => (id === currentUser.id ? '나' : allUsers.find((u) => u.id === id)?.name || '참여자'))
+                .slice(0, 4);
 
               return (
                 <div key={opt.id} className="relative">
@@ -1609,10 +1698,22 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                       }`}
                     />
                   </button>
+                  {voterNames.length > 0 && (
+                    <p className="mt-1 pl-2 text-[10px] font-medium truncate" style={{ color: 'var(--nx-text-muted)' }}>
+                      {voterNames.join(', ')}
+                      {opt.voterIds.length > voterNames.length ? ` 외 ${opt.voterIds.length - voterNames.length}명` : ''} 투표
+                    </p>
+                  )}
                 </div>
               );
             })}
           </div>
+
+          {/* 실시간 공유 안내: 같은 방의 모든 참여자가 같은 현황을 봅니다. */}
+          <p className="text-[10px] flex items-center gap-1" style={{ color: 'var(--nx-text-muted)' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            실시간 공유 투표 · 같은 방 참여자 모두에게 동일하게 보입니다
+          </p>
         </div>
       );
     }
@@ -2135,14 +2236,26 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       )}
 
       {/* MAIN LAYOUT: Messages View & Space Canvas Drawer */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="nx-wallpaper-panel relative flex-1 flex overflow-hidden">
         {/* Messages Scroll Area */}
-        <div className="nx-chat-bg flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+        <div
+          ref={scrollRef}
+          onScroll={handleMessagesScroll}
+          className="nx-chat-bg flex-1 overflow-y-auto p-4 sm:p-6 space-y-4"
+          data-testid="messages-scroll"
+        >
           {displayedMessages.length === 0 && (
-            <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-center gap-2 py-10">
-              <div className="w-12 h-12 rounded-2xl bg-[#F4EFE6] flex items-center justify-center">
-                <MessageSquare className="w-6 h-6 text-[#C18C5D]" />
-              </div>
+            <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-center gap-3 py-10">
+              <span
+                className="w-16 h-16 rounded-full bg-cover bg-center"
+                style={{
+                  backgroundImage: `url("${wallpaperUrl(getThemeWallpaperId(), true)}")`,
+                  border: '1px solid var(--nx-border)',
+                  boxShadow: 'var(--nx-shadow)',
+                }}
+                aria-hidden="true"
+                data-testid="chat-empty-wallpaper"
+              />
               <p className="text-sm font-bold text-[#3E2723]">아직 메시지가 없습니다</p>
               <p className="text-[11px] text-[#7A6A5C] leading-relaxed">
                 첫 메시지를 보내 대화를 시작하세요.<br />회의 버튼을 누르면 새 회의 링크가 이 채팅방에 자동으로 올라갑니다.
@@ -2836,6 +2949,41 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
+        {/* 맨 밑으로 / 새 메시지 N개 ↓ — 사용자가 위쪽을 볼 때만 나타납니다. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center">
+          <button
+            type="button"
+            onClick={() => scrollToBottom('smooth')}
+            data-testid="jump-to-bottom"
+            data-state={showJumpToBottom ? 'visible' : 'hidden'}
+            aria-hidden={!showJumpToBottom}
+            tabIndex={showJumpToBottom ? 0 : -1}
+            className={`pointer-events-auto flex items-center gap-1.5 px-3.5 py-2 text-[11.5px] font-bold transition-all duration-300 ${
+              showJumpToBottom
+                ? 'opacity-100 translate-y-0 scale-100'
+                : 'opacity-0 translate-y-3 scale-95 pointer-events-none'
+            }`}
+            style={{
+              background: newMessageCount > 0 ? 'var(--nx-primary)' : 'var(--nx-surface)',
+              color: newMessageCount > 0 ? 'var(--nx-on-primary)' : 'var(--nx-text-strong)',
+              border: '1px solid var(--nx-border)',
+              boxShadow: 'var(--nx-shadow)',
+            }}
+          >
+            {newMessageCount > 0 ? (
+              <>
+                <span className="tabular-nums">새 메시지 {newMessageCount}개</span>
+                <ArrowDown className="w-3.5 h-3.5" />
+              </>
+            ) : (
+              <>
+                <span>맨 밑으로</span>
+                <ArrowDown className="w-3.5 h-3.5" />
+              </>
+            )}
+          </button>
+        </div>
+
         {/* Space Collaborative Canvas Scratchpad (Slack Canvas Killer Feature) */}
         {isCanvasOpen && (
           <aside className="w-80 md:w-96 flex-shrink-0 bg-[#FDFBF7] border-l border-[#EBE5DA] flex flex-col justify-between z-20 cafe-shadow animate-in slide-in-from-right duration-200">
@@ -2877,7 +3025,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       </div>
 
       {/* INPUT CONTAINER */}
-      <div className="p-3 sm:p-4 bg-[#FDFBF7] border-t border-[#EBE5DA] relative">
+      <div className="nx-composer-shell p-3 sm:p-4 relative">
         {/* Floating Slash Command Palette (Slack Feature) */}
         {isSlashCommandMode && matchedSlashCommands.length > 0 && (
           <div className="absolute bottom-full left-4 right-4 mb-2 bg-white border border-[#EBE5DA] rounded-2xl cafe-shadow-lg p-2 max-h-48 overflow-y-auto z-30">
@@ -3008,7 +3156,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               </div>
             )}
           </div>
-          <div className="rounded-2xl border border-[#EBE5DA] bg-white focus-within:border-[#C18C5D] transition-all cafe-shadow">
+          <div className="nx-composer-card rounded-2xl border border-[#EBE5DA] focus-within:border-[#C18C5D] transition-all cafe-shadow">
             {/* Active Reply Banner */}
             {activeReplyTarget && (
               <div className="flex items-center justify-between px-3 py-2 bg-[#FAF7F2] border-b border-[#EBE5DA] rounded-t-2xl text-xs text-[#5C5046] animate-in fade-in">
@@ -3075,7 +3223,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="Google Drive 파일 공유"
                 >
-                  <HardDrive className="w-4 h-4" />
+                  <ThemeDriveIcon className="w-4 h-4" />
                 </button>
 
                 <button
@@ -3084,7 +3232,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="Google 캘린더 일정 잡기"
                 >
-                  <CalendarIcon className="w-4 h-4" />
+                  <CalendarThemeIcon className="w-4 h-4" />
                 </button>
 
                 {/* Quick Poll Creator Button (Slack Feature) */}
@@ -3094,7 +3242,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="실시간 즉석 투표 만들기 (/poll)"
                 >
-                  <Vote className="w-4 h-4" />
+                  <PollIcon className="w-4 h-4" />
                 </button>
 
                 {/* Real GPS Location Picker */}
@@ -3104,7 +3252,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="실시간 사용자 GPS 위치 추적 & 공유"
                 >
-                  <MapPin className="w-4 h-4" />
+                  <LocationIcon className="w-4 h-4" />
                 </button>
 
                 {/* YouTube In-App Player & Share */}
@@ -3114,7 +3262,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="YouTube 인앱 미디어 센터 및 동영상 공유"
                 >
-                  <Youtube className="w-4 h-4" />
+                  <YoutubeThemeIcon className="w-4 h-4" />
                 </button>
 
                 {/* Voice Note Recording */}
@@ -3124,7 +3272,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   className="p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723]"
                   title="음성 메시지 녹음"
                 >
-                  <Mic className="w-4 h-4" />
+                  <MicThemeIcon className="w-4 h-4" />
                 </button>
 
                 {/* 첨부: 사진과 파일을 한 버튼으로 통합 */}
@@ -3137,7 +3285,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     aria-haspopup="menu"
                     aria-expanded={showAttachMenu}
                   >
-                    <Paperclip className="w-4 h-4" />
+                    <AttachThemeIcon className="w-4 h-4" />
                   </button>
                   {showAttachMenu && (
                     <>
@@ -3187,9 +3335,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     data-testid="emoji-picker-button"
                     aria-expanded={showEmojiPicker}
                   >
-                    <SmilePlus className="w-4 h-4" />
+                    <EmojiThemeIcon className="w-4 h-4" />
                   </button>
                 </div>
+
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
@@ -3206,7 +3355,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   }`}
                 >
                   <span>전송</span>
-                  <Send className="w-3.5 h-3.5" />
+                  <SendIcon className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
