@@ -57,6 +57,7 @@ import { YouTubeInPageView } from './components/YouTubeInPageView';
 import { InAppGmailHub } from './components/InAppGmailHub';
 import { GoogleWorkspaceEditor } from './components/GoogleWorkspaceEditor';
 import { SettingsModal } from './components/SettingsModal';
+import { ChatErrorBoundary } from './components/ChatErrorBoundary';
 import { Mail, FileText, HardDrive, MessageSquare, ChevronRight, Layout, Maximize2, Columns, Table, Presentation, X } from 'lucide-react';
 import { notificationService, InAppNotification } from './services/notificationService';
 import { grantDrivePermissionsToSpaceMembers } from './services/googleWorkspace';
@@ -657,14 +658,9 @@ function WorkspaceApp() {
     setAuthLoading(true);
     setIsSettingsOpen(false);
     try {
-      // 1) 이전 계정 세션·메모리 상태를 완전히 정리합니다.
-      await signOutGoogle();
-      stopUserSettingsSync();
-      applyAccountState(GUEST_SCOPE);
-      storage.setCurrentUser(DEFAULT_LOCAL_USER);
-      setCurrentUser(DEFAULT_LOCAL_USER);
-      setIsGuest(true);
-      // 2) 계정 선택 창을 띄워 다른 Google 계정으로 로그인합니다.
+      // 계정 선택 창은 클릭 직후의 사용자 제스처 안에서 열어야 브라우저가 막지 않습니다.
+      // (예전처럼 signOut 을 먼저 await 하면 제스처가 만료되어 팝업이 차단될 수 있습니다.)
+      // Firebase 는 이미 로그인된 상태에서도 signInWithPopup 으로 다른 계정 세션으로 교체합니다.
       const firebaseUser = await signInWithGoogleAccount();
       if (firebaseUser) applyFirebaseUser(firebaseUser);
     } catch (error: any) {
@@ -710,6 +706,23 @@ function WorkspaceApp() {
     // Ensure active space exists
     if (!freshSpaces.find((s) => s.id === activeSpaceId)) {
       setActiveSpaceId(freshSpaces[0]?.id || DEFAULT_PUBLIC_SPACE.id);
+    }
+  };
+
+  /**
+   * 현재 계정의 채팅 내역만 이 기기에서 비웁니다.
+   * - 서버(Firestore 공용 대화)는 삭제하지 않습니다.
+   * - 다른 계정의 저장 데이터도 건드리지 않습니다.
+   */
+  const handleClearLocalChatHistory = () => {
+    try {
+      storage.saveMessages({});
+      setMessagesMap({});
+      setActiveThreadMessage(null);
+      notificationService.notify({ title: '채팅 초기화', body: '이 기기의 채팅 내역을 비웠습니다.' });
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -1383,25 +1396,33 @@ function WorkspaceApp() {
     const channelMsgs = messagesMap[activeSpaceId] || [];
     const target = channelMsgs.find((msg) => msg.id === messageId);
     const attachmentIndex = (target?.attachments || []).findIndex((att) => att.type === 'poll');
-    if (attachmentIndex < 0) return;
+    if (!target || attachmentIndex < 0) return;
 
     let nextOptionId: string | null = optionId;
     let pollOptions: { id: string; voterIds: string[] }[] = [];
 
     const updated = channelMsgs.map((msg) => {
-      if (msg.id !== messageId || !msg.attachments) return msg;
+      if (msg.id !== messageId || !Array.isArray(msg.attachments)) return msg;
 
       const updatedAttachments = msg.attachments.map((att, attIdx) => {
         if (att.type !== 'poll' || attIdx !== attachmentIndex) return att;
         const poll = att as any;
-        const already = (poll.options as any[]).find((opt) => opt.id === optionId);
-        const unvoting = Boolean(already?.voterIds?.includes(currentUser.id));
+        // 예전 저장본·서버 데이터에 voterIds 가 없어도 안전하게 동작합니다.
+        const safeOptions = Array.isArray(poll.options) ? poll.options : [];
+        const already = safeOptions.find((opt: any) => opt?.id === optionId);
+        const unvoting = Boolean(
+          already && Array.isArray(already.voterIds) && already.voterIds.includes(currentUser.id)
+        );
         nextOptionId = unvoting ? null : optionId;
-        pollOptions = (poll.options as any[]).map((opt) => ({ id: opt.id, voterIds: [...(opt.voterIds || [])] }));
+        pollOptions = safeOptions.map((opt: any) => ({
+          id: opt?.id,
+          voterIds: Array.isArray(opt?.voterIds) ? [...opt.voterIds] : [],
+        }));
 
-        const updatedOptions = (poll.options as any[]).map((opt) => {
-          const withoutMine = (opt.voterIds || []).filter((id: string) => id !== currentUser.id);
-          if (opt.id === optionId && !unvoting) {
+        const updatedOptions = safeOptions.map((opt: any) => {
+          const mine = Array.isArray(opt?.voterIds) ? opt.voterIds : [];
+          const withoutMine = mine.filter((id: string) => id !== currentUser.id);
+          if (opt?.id === optionId && !unvoting) {
             return { ...opt, voterIds: [...withoutMine, currentUser.id] };
           }
           return { ...opt, voterIds: withoutMine };
@@ -1413,7 +1434,12 @@ function WorkspaceApp() {
     });
 
     const nextMap = { ...messagesMap, [activeSpaceId]: updated };
-    storage.saveMessages(nextMap);
+    try {
+      storage.saveMessages(nextMap);
+    } catch (error) {
+      // 저장 공간이 꽉 차도 화면 갱신은 계속되게 합니다.
+      console.warn('투표 상태를 기기에 저장하지 못했습니다:', error);
+    }
     setMessagesMap(nextMap);
 
     // 게스트/비로그인은 이 기기에만 저장됩니다.
@@ -2010,6 +2036,7 @@ function WorkspaceApp() {
   );
 
   const renderChatMain = () => (
+    <ChatErrorBoundary>
     <GoogleChatMain
       space={activeSpace}
       messages={activeMessages}
@@ -2066,6 +2093,7 @@ function WorkspaceApp() {
       onAcceptInvite={handleAcceptInvite}
       onDeclineInvite={handleDeclineInvite}
     />
+    </ChatErrorBoundary>
   );
 
   const renderWorkContent = () => {
@@ -2274,7 +2302,7 @@ function WorkspaceApp() {
 
       {/* 1. Left Sidebar (Google Chat in Cafe Beige theme) - Collapsible on demand */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] md:static md:z-auto md:max-w-none md:overflow-hidden ${
+        className={`fixed top-[60px] bottom-0 left-0 z-50 flex w-[86vw] max-w-[320px] sm:top-16 md:static md:inset-y-0 md:z-auto md:max-w-none md:overflow-hidden ${
           isMobileSidebarVisible
             ? 'translate-x-0 opacity-100 shadow-2xl md:shadow-none'
             : '-translate-x-full opacity-0 pointer-events-none md:translate-x-0 md:opacity-100'
@@ -2327,10 +2355,10 @@ function WorkspaceApp() {
           onOpenDrive={handleOpenDriveSplit}
           onLogout={handleLogout}
           onSwitchUser={handleLogin}
+          onSwitchGoogleAccount={handleSwitchGoogleAccount}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onGoogleSignIn={handleGoogleSignIn}
           authLoading={authLoading}
-          onToggleCollapse={() => setIsSidebarCollapsed(true)}
           contacts={contacts}
           onOpenContacts={() => {
             setIsContactsOpen(true);
@@ -2345,7 +2373,7 @@ function WorkspaceApp() {
         <div
           onClick={() => setIsMobileSidebarOpen(false)}
           aria-hidden
-          className={`md:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-30 ${isMobileSidebarVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          className={`md:hidden fixed top-[60px] bottom-0 left-0 right-0 bg-black/40 backdrop-blur-xs z-30 ${isMobileSidebarVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           style={{ transition: BACKDROP_TRANSITION }}
         />
       )}
@@ -2839,6 +2867,7 @@ function WorkspaceApp() {
           onSwitchAccount={handleSwitchGoogleAccount}
           notificationsEnabled={notificationsEnabled}
           onToggleNotifications={handleToggleNotifications}
+          onClearChatHistory={handleClearLocalChatHistory}
         />
       )}
 

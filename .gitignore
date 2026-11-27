@@ -16,3 +16,6 @@ check.mjs
 # local verification script (dev only)
 scripts/verify.mjs
 scripts/verify*.mjs
+
+# local diagnosis scripts (dev only)
+scripts/diag-*.mjs

@@ -529,7 +529,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
   // Quick Poll Modal
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [showMeetMenu, setShowMeetMenu] = useState(false);
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  // 첨부 메뉴: 입력창 도구모음의 overflow 에 잘리지 않도록 화면 좌표로 포털에 띄웁니다.
+  const attachButtonRef = useRef<HTMLButtonElement | null>(null);
+  const attachMenuRef = useRef<HTMLDivElement | null>(null);
+  const [attachMenuPos, setAttachMenuPos] = useState<{ left: number; bottom: number } | null>(null);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '', '']);
 
@@ -573,6 +576,45 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
     }
     setShowEmojiPicker((prev) => !prev);
   };
+
+  /** 첨부 메뉴 열기/닫기 — 입력창 도구모음의 overflow 에 잘리지 않게 포털 좌표를 계산합니다. */
+  const toggleAttachMenu = () => {
+    if (attachMenuPos) {
+      setAttachMenuPos(null);
+      return;
+    }
+    const btn = attachButtonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const width = 168;
+    setAttachMenuPos({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      bottom: Math.max(8, window.innerHeight - rect.top + 10),
+    });
+  };
+
+  useEffect(() => {
+    if (!attachMenuPos) return;
+    const close = () => setAttachMenuPos(null);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (attachMenuRef.current?.contains(target) || attachButtonRef.current?.contains(target)) return;
+      setAttachMenuPos(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAttachMenuPos(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [attachMenuPos]);
 
   const insertEmoji = (emoji: string) => {
     const node = textareaRef.current;
@@ -1430,16 +1472,24 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       })),
     };
 
-    onSendMessage(`[실시간 투표] ${pollQuestion.trim()}`, [pollAtt]);
-    setIsPollModalOpen(false);
-    setPollQuestion('');
-    setPollOptions(['옵션 1', '옵션 2', '옵션 3']);
+    // 전송이 실패해도 모달이 열린 채 화면이 잠기지 않게 항상 닫습니다.
+    try {
+      onSendMessage(`[실시간 투표] ${pollQuestion.trim()}`, [pollAtt]);
+    } catch (error) {
+      console.warn('투표 게시에 실패했습니다:', error);
+    } finally {
+      setIsPollModalOpen(false);
+      setPollQuestion('');
+      setPollOptions(['', '', '']);
+    }
   };
 
   // Vote on Poll Option
   const handleOptionVote = (messageId: string, optionId: string) => {
-    if (onVotePoll) {
-      onVotePoll(messageId, optionId);
+    try {
+      onVotePoll?.(messageId, optionId);
+    } catch (error) {
+      console.warn('투표 반영에 실패했습니다:', error);
     }
   };
 
@@ -1647,7 +1697,13 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
     // 4. Interactive Quick Poll (Slack Killer Feature)
     if (att.type === 'poll') {
       const poll = att as PollAttachment;
-      const totalVotes = poll.options.reduce((sum, opt) => sum + opt.voterIds.length, 0);
+      // 예전 버전·서버에서 넘어온 투표 데이터에 voterIds 가 빠져 있어도 화면이 죽지 않게 보정합니다.
+      const options = (Array.isArray(poll.options) ? poll.options : []).map((opt, idx) => ({
+        id: opt?.id || `opt_${idx}`,
+        text: opt?.text || `옵션 ${idx + 1}`,
+        voterIds: Array.isArray(opt?.voterIds) ? opt.voterIds.filter(Boolean) : [],
+      }));
+      const totalVotes = options.reduce((sum, opt) => sum + opt.voterIds.length, 0);
 
       return (
         <div
@@ -1659,13 +1715,13 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
               <div className="p-1.5 rounded-lg bg-[#E6DCD0] text-[#3E2723]">
                 <Vote className="w-4 h-4 text-[#C18C5D]" />
               </div>
-              <h4 className="text-xs font-bold text-[#2C2520]">{poll.question}</h4>
+              <h4 className="text-xs font-bold text-[#2C2520]">{poll.question || '투표'}</h4>
             </div>
             <span className="text-[10px] text-[#7A6A5C] font-semibold">총 {totalVotes}명 참여</span>
           </div>
 
           <div className="space-y-2">
-            {poll.options.map((opt) => {
+            {options.map((opt) => {
               const hasVoted = opt.voterIds.includes(currentUser.id);
               const percentage = totalVotes > 0 ? Math.round((opt.voterIds.length / totalVotes) * 100) : 0;
               const voterNames = opt.voterIds
@@ -1939,7 +1995,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       {/* HEADER in Cafe Beige */}
       <header className="h-15 sm:h-16 px-3 sm:px-5 border-b border-[#EBE5DA] bg-[#FDFBF7] flex items-center justify-between z-10 cafe-shadow min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          {/* 서랍 통합 토글: 왼쪽/오른쪽 서랍을 하나의 컨트롤로 */}
+          {/* 사이드바 여닫기 통합 토글: 화면당 딱 1개 (데스크톱=접기/펼치기, 모바일=서랍 열기/닫기) */}
           <div className="flex items-center rounded-xl border border-[#EBE5DA] bg-white p-0.5 shrink-0 shadow-2xs" data-testid="drawer-toggle">
             <button
               onClick={() => {
@@ -1947,18 +2003,11 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 else onToggleCollapseSidebar?.();
               }}
               className="p-1.5 rounded-lg hover:bg-[#F4EFE6] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer"
-              title={isSidebarCollapsed ? '왼쪽 서랍 열기 (채팅 목록)' : '왼쪽 서랍 닫기 (채팅 목록)'}
-              aria-label="왼쪽 서랍 토글"
+              title={isSidebarCollapsed ? '사이드바 열기 (채팅 목록)' : '사이드바 닫기 (채팅 목록)'}
+              aria-label="사이드바 열기/닫기"
+              data-testid="sidebar-toggle"
             >
               {isSidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={onToggleRightPanel}
-              className="p-1.5 rounded-lg hover:bg-[#F4EFE6] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer"
-              title="오른쪽 서랍 열기/닫기 (할 일·스레드·도구)"
-              aria-label="오른쪽 서랍 토글"
-            >
-              <PanelRightOpen className="w-4 h-4" />
             </button>
           </div>
 
@@ -1992,6 +2041,16 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
         {/* Right Header Controls - Consolidated, Zero Duplicate Buttons */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* 오른쪽 보조 패널 토글 (할 일·스레드·도구) — 사이드바 토글과 분리해 하나씩만 둡니다. */}
+          <button
+            onClick={onToggleRightPanel}
+            className="p-1.5 rounded-xl border border-[#EBE5DA] bg-white hover:bg-[#FAF7F2] text-[#7A6A5C] hover:text-[#2C2520] transition-colors cursor-pointer shrink-0"
+            title="오른쪽 패널 열기/닫기 (할 일·스레드·도구)"
+            aria-label="오른쪽 패널 토글"
+            data-testid="right-panel-toggle"
+          >
+            <PanelRightOpen className="w-3.5 h-3.5" />
+          </button>
           {/* 초대 알림 센터 (벨 + 배지) — 알림 수신 설정은 설정 모달 안에 있습니다. */}
           {onAcceptInvite && onDeclineInvite && (
             <InviteBell invites={invites} onAccept={onAcceptInvite} onDecline={onDeclineInvite} />
@@ -3278,52 +3337,19 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   <MicThemeIcon className="w-4 h-4" />
                 </button>
 
-                {/* 첨부: 사진과 파일을 한 버튼으로 통합 */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowAttachMenu((prev) => !prev)}
-                    className="p-1.5 rounded-lg text-[#5C5046] hover:bg-[#F4EFE6]"
-                    title="첨부 (사진 · 파일)"
-                    aria-haspopup="menu"
-                    aria-expanded={showAttachMenu}
-                  >
-                    <AttachThemeIcon className="w-4 h-4" />
-                  </button>
-                  {showAttachMenu && (
-                    <>
-                      <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} />
-                      <div
-                        className="absolute bottom-full left-0 mb-1.5 z-40 w-40 rounded-xl border p-1.5 shadow-xl"
-                        style={{ background: 'var(--nx-surface)', borderColor: 'var(--nx-border)', color: 'var(--nx-text)' }}
-                        role="menu"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAttachMenu(false);
-                            imageInputRef.current?.click();
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold hover:opacity-80"
-                          role="menuitem"
-                        >
-                          <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--nx-accent)' }} /> 사진 첨부
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAttachMenu(false);
-                            fileInputRef.current?.click();
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold hover:opacity-80"
-                          role="menuitem"
-                        >
-                          <FileIcon className="w-3.5 h-3.5" style={{ color: 'var(--nx-accent)' }} /> 파일 첨부
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
+                {/* 첨부: 사진과 파일을 한 버튼으로 통합 (메뉴는 포털로 띄웁니다) */}
+                <button
+                  type="button"
+                  ref={attachButtonRef}
+                  onClick={toggleAttachMenu}
+                  className={`p-1.5 rounded-lg hover:bg-[#F4EFE6] hover:text-[#3E2723] ${attachMenuPos ? 'bg-[#F4EFE6] text-[#3E2723]' : 'text-[#5C5046]'}`}
+                  title="첨부 (사진 · 파일)"
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(attachMenuPos)}
+                  data-testid="attach-button"
+                >
+                  <AttachThemeIcon className="w-4 h-4" />
+                </button>
                 <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden" />
 
@@ -3398,6 +3424,50 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 </button>
               ))}
             </div>
+          </div>,
+          document.body
+        )}
+
+      {/* 첨부 메뉴 (Portal: 입력창 도구모음의 overflow 에 잘리지 않음) */}
+      {attachMenuPos &&
+        createPortal(
+          <div
+            ref={attachMenuRef}
+            style={{
+              position: 'fixed',
+              left: attachMenuPos.left,
+              bottom: attachMenuPos.bottom,
+              background: 'var(--nx-surface, #fff)',
+              borderColor: 'var(--nx-border, #EBE5DA)',
+              color: 'var(--nx-text, #2C2520)',
+            }}
+            className="w-[168px] rounded-xl border p-1.5 shadow-xl z-[120] animate-in fade-in zoom-in-95"
+            role="menu"
+            aria-label="첨부 메뉴"
+            data-testid="attach-menu"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setAttachMenuPos(null);
+                imageInputRef.current?.click();
+              }}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-[11px] font-semibold hover:bg-[#F4EFE6] text-[#2C2520]"
+              role="menuitem"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-[#C18C5D]" /> 사진 첨부
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAttachMenuPos(null);
+                fileInputRef.current?.click();
+              }}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-[11px] font-semibold hover:bg-[#F4EFE6] text-[#2C2520]"
+              role="menuitem"
+            >
+              <FileIcon className="w-3.5 h-3.5 text-[#C18C5D]" /> 파일 첨부
+            </button>
           </div>,
           document.body
         )}

@@ -15,7 +15,6 @@ import {
   Users, 
   Check, 
   ChevronUp, 
-  PanelLeftClose,
   Mail,
   HardDrive,
   Settings,
@@ -47,7 +46,8 @@ interface GoogleChatSidebarProps {
   onLogout?: () => void;
   onOpenSettings?: () => void;
   onSwitchUser?: (user: User) => void;
-  onToggleCollapse?: () => void;
+  /** 실제 Google 계정 선택창을 띄워 계정을 바꿉니다. */
+  onSwitchGoogleAccount?: () => void;
   onGoogleSignIn?: () => void;
   authLoading?: boolean;
   contacts?: Contact[];
@@ -72,7 +72,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
   onLogout,
   onOpenSettings,
   onSwitchUser,
-  onToggleCollapse,
+  onSwitchGoogleAccount,
   onGoogleSignIn,
   authLoading = false,
   contacts = [],
@@ -140,15 +140,6 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
             >
               <SlidersHorizontal className="w-4 h-4" />
             </button>
-            {onToggleCollapse && (
-              <button
-                onClick={onToggleCollapse}
-                className="p-1.5 rounded-lg text-[#7A6A5C] hover:text-[#2C2520] hover:bg-[#EBE5DA] transition-colors cursor-pointer"
-                title="사이드바 접기"
-              >
-                <PanelLeftClose className="w-4 h-4" />
-              </button>
-            )}
           </div>
         </div>
 
@@ -426,8 +417,16 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               type="button"
               onClick={() => {
                 setIsAccountSwitcherOpen(false);
-                if (onSwitchUser) onSwitchUser(currentUser);
-                else onGoogleSignIn?.();
+                // 게스트는 로그인, 로그인 상태는 실제 Google 계정 선택창으로 전환합니다.
+                if (!currentUser.googleConnected) {
+                  onGoogleSignIn?.();
+                } else if (onSwitchGoogleAccount) {
+                  onSwitchGoogleAccount();
+                } else if (onSwitchUser) {
+                  onSwitchUser(currentUser);
+                } else {
+                  onGoogleSignIn?.();
+                }
               }}
               data-testid="sidebar-switch-google-account"
               className="mt-1.5 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1765CC] transition-colors"
@@ -531,7 +530,7 @@ export const GoogleChatSidebar: React.FC<GoogleChatSidebarProps> = ({
               type="button"
               onClick={() => setIsAccountSwitcherOpen(!isAccountSwitcherOpen)}
               className="p-1.5 rounded-xl text-[#7A6A5C] hover:text-[#3E2723] hover:bg-[#F4EFE6] transition-colors"
-              title="계정 1초 전환 (새로고침 불필요)"
+              title="계정 전환 (Google 계정 선택)"
             >
               <UserCog className="w-3.5 h-3.5" />
             </button>

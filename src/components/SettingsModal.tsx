@@ -57,6 +57,8 @@ interface SettingsModalProps {
   /** 시스템 알림 수신 설정 (설정 모달 안에서만 바꿉니다) */
   notificationsEnabled?: boolean;
   onToggleNotifications?: () => void;
+  /** 현재 계정의 채팅 내역만 이 기기에서 비웁니다. (서버 공용 대화는 유지) */
+  onClearChatHistory?: () => boolean;
 }
 
 type TabKey = 'ai' | 'notifications' | 'theme' | 'google' | 'data';
@@ -73,6 +75,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSwitchAccount,
   notificationsEnabled = true,
   onToggleNotifications,
+  onClearChatHistory,
 }) => {
   const [tab, setTab] = useState<TabKey>('ai');
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -649,6 +652,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Download className="w-3.5 h-3.5" />
                     백업 파일 내려받기
                   </button>
+                  {onClearChatHistory && (
+                    <button
+                      onClick={() => {
+                        const ok = window.confirm(
+                          '이 기기에 저장된 지금 계정의 채팅 내역을 비울까요? 서버에 저장된 공용 대화는 지워지지 않으며, 새로고침하면 서버 대화가 다시 보일 수 있습니다.'
+                        );
+                        if (!ok) return;
+                        const cleared = onClearChatHistory();
+                        setDataMessage(
+                          cleared
+                            ? '✓ 이 기기의 채팅 내역을 비웠습니다.'
+                            : '채팅 내역을 비우지 못했습니다.'
+                        );
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[#3E2723] bg-[#FFF7EB] border border-[#FBD38D] text-xs font-bold hover:bg-[#FFEFD6] cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      채팅 내역 초기화
+                    </button>
+                  )}
                   <button
                     onClick={handleResetData}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-red-600 bg-red-50 border border-red-100 text-xs font-bold hover:bg-red-100 cursor-pointer"
