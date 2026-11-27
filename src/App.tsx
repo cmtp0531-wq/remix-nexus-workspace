@@ -109,6 +109,11 @@ const SIDEBAR_TRANSITION = `width ${SIDEBAR_MOTION_MS}ms ${NX_EASE_OUT}, transla
   SIDEBAR_MOTION_MS * 0.7,
 )}ms ${NX_EASE_OUT}`;
 const BACKDROP_TRANSITION = `opacity ${Math.round(SIDEBAR_MOTION_MS * 0.8)}ms ${NX_EASE_OUT}`;
+/**
+ * 서버 저장 요청이 끝내 응답하지 않아도 '보내는 중'에 갇히지 않도록 기다리는 최대 시간.
+ * (Firestore 는 연결이 불안정하면 쓰기 Promise를 오래 대기시킵니다.)
+ */
+const CLOUD_SEND_TIMEOUT_MS = 15000;
 
 export default function App() {
   return (
@@ -124,6 +129,9 @@ function WorkspaceApp() {
   // - 설정에서 Firebase 를 연결하고 구글 로그인을 하면 그 계정으로 전환됩니다.
   const [currentUser, setCurrentUser] = useState<User | null>(() => storage.getCurrentUser());
   const [isGuest, setIsGuest] = useState<boolean>(() => !isGoogleSignedIn());
+  // Google 세션 복원이 끝나기 전에는 '게스트'라고 단정하지 않습니다.
+  // (로그인한 사용자에게 게스트 모드 배너·게스트 안내가 잠깐 버이는 문제 방지)
+  const [authChecked, setAuthChecked] = useState<boolean>(() => !isFirebaseConfigured() || isGoogleSignedIn());
   // 로그인 게이트를 기다리지 않습니다. 저장된 로컬 사용자(또는 게스트)로 즉시 화면을 렌더하고
   // Firebase 세션 복원·Firestore 동기화는 백그라운드에서 이어집니다.
   const [authLoading, setAuthLoading] = useState(false);
@@ -391,6 +399,11 @@ function WorkspaceApp() {
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
+  /** 서버로 보내는 중인 메시지 id (중복 전송 방지) */
+  const pendingCloudSendsRef = React.useRef<Set<string>>(new Set());
+  /** 최신 복구 함수 (새로고침·탭 복귀·연결 복구 시 호출) */
+  const recoverPendingRef = React.useRef<(() => void) | null>(null);
+
   /**
    * 계정 스코프를 바꾸고 그 계정의 저장 데이터·테마로 화면 상태를 완전히 새로 채웁니다.
    * 이전 계정의 메모리 상태(대화·활성 스페이스·연락처·테마·캐시)는 하나도 남기지 않습니다.
@@ -495,6 +508,7 @@ function WorkspaceApp() {
     }
 
     const unsubscribe = observeFirebaseAuth((firebaseUser: FirebaseUser | null) => {
+      setAuthChecked(true);
       if (!firebaseUser) {
         stopUserSettingsSync();
         // 로그아웃·세션 만료: 이전 계정의 상태를 남기지 않고 게스트 스코프로 분리합니다.
@@ -584,7 +598,13 @@ function WorkspaceApp() {
       setMessagesMap((previous) => {
         const localMessages = previous[activeSpaceId] || [];
         // 서버에서 온 데이터도 화면이 그릴 수 있는 모양으로 정리해 둡니다.
-        const safeCloud = sanitizeMessages(cloudMessages, activeSpaceId);
+        // 서버에 저장된 내 메시지는 이미 전달된 것이므로 'sent' 로 봅니다.
+        // (예전 버전이 서버 문서에 남긴 deliveryStatus:'sending' 이 화면에 되살아나던 문제를 막습니다.)
+        const safeCloud = sanitizeMessages(cloudMessages, activeSpaceId).map((message: Message) =>
+          message.senderId === currentUser.id
+            ? { ...message, deliveryStatus: 'sent' as const, deliveryError: undefined }
+            : message
+        );
         const cloudIds = new Set(safeCloud.map((m: Message) => m.id));
         const localOnly = localMessages.filter((m) => m.senderId === 'system' || (m.senderId === currentUser.id && !cloudIds.has(m.id)));
         const merged: Message[] = [...safeCloud, ...localOnly].sort((a, b) => {
@@ -611,6 +631,28 @@ function WorkspaceApp() {
       console.warn('Cloud chat subscription error:', error.message);
     });
   }, [activeSpaceId, currentUser?.id]);
+
+  // '보내는 중'에 갇힌 메시지 복구
+  // - 앱을 새로고침하거나 탭을 닫는 순간 전송이 끝나지 않으면 기기에는 'sending' 이 남습니다.
+  // - 연결이 끊긴 채로 보낸 메시지도 서버 응답을 받지 못해 'sending' 으로 남을 수 있습니다.
+  // 그래서 시작할 때·탭으로 돌아올 때·연결이 복구될 때 서버로 다시 보내 완료 상태로 만듭니다.
+  useEffect(() => {
+    const run = () => recoverPendingRef.current?.();
+    // Firebase 세션 복원이 끝난 뒤 복구를 시작합니다.
+    const timer = window.setTimeout(run, 2500);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') run();
+    };
+    window.addEventListener('online', run);
+    window.addEventListener('focus', run);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('online', run);
+      window.removeEventListener('focus', run);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [currentUser?.id]);
 
   // 새 버전 알림: 화면이 뒤로 갔을 때는 조용히 새로고침하고, 보고 있을 때는 하단 안내를 띄웁니다.
   useEffect(() => {
@@ -662,17 +704,58 @@ function WorkspaceApp() {
     };
   }, []);
 
-  // Keyboard shortcut for Cmd+K search
+  // Keyboard shortcut for Cmd+K search (다시 누르면 닫힙니다)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
-        setIsSearchModalOpen(true);
+        setIsSearchModalOpen((open) => !open);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // ESC 키로 열린 창을 닫습니다. (검색창은 SearchModal 이 직접 처리)
+  // - 검색창·각 모달·모바일 사이드바가 열려 있을 때 ESC 를 누르면 하나씩 닫힙니다.
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' && event.key !== 'Esc') return;
+      if (isSearchModalOpen) return; // SearchModal 이 자체 처리합니다.
+      const closers: Array<[boolean, () => void]> = [
+        [isDrivePickerOpen, () => setIsDrivePickerOpen(false)],
+        [isCalendarModalOpen, () => setIsCalendarModalOpen(false)],
+        [isSpaceSettingsOpen, () => setIsSpaceSettingsOpen(false)],
+        [isCreateSpaceModalOpen, () => setIsCreateSpaceModalOpen(false)],
+        [isFriendModalOpen, () => setIsFriendModalOpen(false)],
+        [isProfileModalOpen, () => setIsProfileModalOpen(false)],
+        [isContactsOpen, () => setIsContactsOpen(false)],
+        [isWorkspaceHubOpen, () => setIsWorkspaceHubOpen(false)],
+        [isSettingsOpen, () => setIsSettingsOpen(false)],
+        [isMeetModalOpen, () => setIsMeetModalOpen(false)],
+        [isMobileSidebarOpen, () => setIsMobileSidebarOpen(false)],
+      ];
+      const target = closers.find(([open]) => open);
+      if (!target) return;
+      event.preventDefault();
+      target[1]();
+    };
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [
+    isSearchModalOpen,
+    isDrivePickerOpen,
+    isCalendarModalOpen,
+    isSpaceSettingsOpen,
+    isCreateSpaceModalOpen,
+    isFriendModalOpen,
+    isProfileModalOpen,
+    isContactsOpen,
+    isWorkspaceHubOpen,
+    isSettingsOpen,
+    isMeetModalOpen,
+    isMobileSidebarOpen,
+  ]);
 
   // Sync active thread message if new replies arrive in realtime
   useEffect(() => {
@@ -873,6 +956,63 @@ function WorkspaceApp() {
     setMessagesMap(nextMap);
   };
 
+  /**
+   * Firestore 로 메시지를 보내고, 응답이 끝내 오지 않아도 '보내는 중'에 갇히지 않게 지켜봅니다.
+   * - 저장 성공 → 'sent'
+   * - 저장 실패 → 'failed' (+ 재전송 버튼)
+   * - 15000ms 동안 아무 응답도 없음 → 'failed' (재전송 가능, 나중에 실제 저장되면 'sent' 로 바뀝니다)
+   */
+  const pushMessageToCloud = (spaceId: string, message: Message) => {
+    if (pendingCloudSendsRef.current.has(message.id)) return;
+    pendingCloudSendsRef.current.add(message.id);
+    let timer = 0;
+    const finish = (patch: Partial<Message>) => {
+      window.clearTimeout(timer);
+      pendingCloudSendsRef.current.delete(message.id);
+      patchMessage(spaceId, message.id, patch);
+    };
+    timer = window.setTimeout(() => {
+      if (!pendingCloudSendsRef.current.has(message.id)) return;
+      finish({
+        deliveryStatus: 'failed',
+        deliveryError: '서버 응답이 없습니다. 연결을 확인하고 다시 시도해 주세요.',
+      });
+    }, CLOUD_SEND_TIMEOUT_MS);
+    void saveCloudChatMessage(spaceId, message)
+      .then(() => finish({ deliveryStatus: 'sent', deliveryError: undefined }))
+      .catch((error) => {
+        console.error('Could not send chat message to Firestore:', error);
+        finish({ deliveryStatus: 'failed', deliveryError: '서버 전송에 실패했습니다.' });
+      });
+  };
+
+  /**
+   * 'sending' 으로 남은 내 메시지를 다시 서버로 보냅니다.
+   * (새로고침·탭 종료·연결 끊김으로 전송이 끝나지 못한 메시지)
+   */
+  const recoverPendingMessages = () => {
+    const user = currentUserRef.current;
+    if (!user) return;
+    const signedIn = Boolean(auth?.currentUser && auth.currentUser.uid === user.id);
+    const map = storage.getMessages();
+    Object.entries(map).forEach(([spaceId, list]) => {
+      (list || []).forEach((message) => {
+        if (!message || message.deliveryStatus !== 'sending' || message.senderId !== user.id) return;
+        if (pendingCloudSendsRef.current.has(message.id)) return;
+        if (!signedIn) {
+          // 로그인 세션이 아직 복원되지 않은 순간에는 건드리지 않습니다.
+          // (게스트 계정 데이터만 서버로 보낼 곳이 없으므로 기기 전송 완료로 정리합니다.)
+          if (getAccountScope() === GUEST_SCOPE) {
+            patchMessage(spaceId, message.id, { deliveryStatus: 'sent', deliveryError: undefined });
+          }
+          return;
+        }
+        pushMessageToCloud(spaceId, message);
+      });
+    });
+  };
+  recoverPendingRef.current = recoverPendingMessages;
+
   /** 서버 전송을 다시 시도합니다 (오프라인/전송 실패 메시지). */
   const handleRetryMessage = async (messageId: string) => {
     const target = (storage.getMessages()[activeSpaceId] || []).find((m) => m.id === messageId);
@@ -895,16 +1035,7 @@ function WorkspaceApp() {
     }
 
     patchMessage(activeSpaceId, messageId, { deliveryStatus: 'sending', deliveryError: undefined });
-    try {
-      await saveCloudChatMessage(activeSpaceId, target);
-      patchMessage(activeSpaceId, messageId, { deliveryStatus: 'sent', deliveryError: undefined });
-    } catch (error) {
-      console.error('재전송 실패:', error);
-      patchMessage(activeSpaceId, messageId, {
-        deliveryStatus: 'failed',
-        deliveryError: '서버 전송에 실패했습니다.',
-      });
-    }
+    pushMessageToCloud(activeSpaceId, target);
   };
 
   /** 전송 실패한 메시지를 이 기기에서 버립니다. */
@@ -958,15 +1089,7 @@ function WorkspaceApp() {
     if (!online) {
       console.warn('[전송 실패] 오프라인 상태입니다. 연결되면 재전송할 수 있습니다.');
     } else if (signedIn) {
-      void saveCloudChatMessage(activeSpaceId, newMsg)
-        .then(() => patchMessage(activeSpaceId, newMsg.id, { deliveryStatus: 'sent', deliveryError: undefined }))
-        .catch((error) => {
-          console.error('Could not send chat message to Firestore:', error);
-          patchMessage(activeSpaceId, newMsg.id, {
-            deliveryStatus: 'failed',
-            deliveryError: '서버 전송에 실패했습니다.',
-          });
-        });
+      pushMessageToCloud(activeSpaceId, newMsg);
     }
 
     // Real Gemini AI Assistant in-chat reply
@@ -2372,7 +2495,7 @@ function WorkspaceApp() {
             </button>
           </div>
         )}
-        {isGuest && !authError && showGuestBanner && !isMobileSidebarOpen && (
+        {isGuest && authChecked && !authError && showGuestBanner && !isMobileSidebarOpen && (
           <div className="pointer-events-auto w-full max-w-md px-3 py-2 rounded-xl bg-white/95 border border-[#EBE5DA] text-[11px] text-[#5C5046] flex items-center gap-2 shadow-md nx-fade-in">
             <span className="flex-1 leading-relaxed">
               <strong className="text-[#2C2520]">게스트 모드</strong> — Google로 로그인하면 대화·할 일·문서가 내 계정에 안전하게 동기화됩니다.

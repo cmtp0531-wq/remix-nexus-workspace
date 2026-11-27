@@ -220,8 +220,17 @@ export const observeFirebaseAuth = (callback: (user: FirebaseUser | null) => voi
 export const saveCloudChatMessage = async (spaceId: string, message: any) => {
   if (!auth?.currentUser || !firestore) throw new Error('Google 로그인 세션이 없습니다.');
   if (message.senderId !== auth.currentUser.uid) throw new Error('메시지 발신자 인증이 일치하지 않습니다.');
+  // deliveryStatus/deliveryError 는 이 기기의 화면 상태입니다. 서버 문서에 함께 올리면
+  // onSnapshot 이 'sending' 을 되살려 메시지가 영원히 '보내는 중'으로 남습니다. 그래서 절대 올리지 않습니다.
+  const persistable: Record<string, any> = {
+    ...message,
+    // 재전송해도 원래 보낸 순서가 유지되도록 최초 작성 시각을 그대로 씁니다.
+    createdAt: typeof message.createdAt === 'number' && message.createdAt > 0 ? message.createdAt : Date.now(),
+  };
+  delete persistable.deliveryStatus;
+  delete persistable.deliveryError;
   // JSON round-trip removes undefined values that Firestore rejects.
-  const safeMessage = JSON.parse(JSON.stringify({ ...message, createdAt: Date.now() }));
+  const safeMessage = JSON.parse(JSON.stringify(persistable));
   await setDoc(doc(firestore, 'spaces', spaceId, 'messages', message.id), safeMessage);
 };
 

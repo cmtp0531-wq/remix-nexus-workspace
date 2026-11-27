@@ -46,6 +46,20 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     return () => window.clearTimeout(timer);
   }, [isOpen]);
 
+  // ESC 를 누르면 즉시 닫힙니다. (입력창에 포커스가 있어도, 한글 조합 중이어도 동작하도록 캡처 단계에서 받습니다.)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' && event.key !== 'Esc') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setQuery('');
+      onClose();
+    };
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [isOpen, onClose]);
+
   // ⚠️ 훅 순서가 바뀌면 React #310 으로 화면이 깨지므로, 조기 return 은 모든 훅 뒤에 둡니다.
   const matchedMessages = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
@@ -66,7 +80,13 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-start justify-center pt-16 sm:pt-24 p-4 bg-black/50 backdrop-blur-xs select-none nx-fade-in">
+    <div
+      className="fixed inset-0 z-[95] flex items-start justify-center pt-16 sm:pt-24 p-4 bg-black/50 backdrop-blur-xs select-none nx-fade-in"
+      onMouseDown={(event) => {
+        // 바깥(어두운 영역)을 눌러도 닫힙니다.
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="relative w-full max-w-xl rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] cafe-shadow-lg overflow-hidden text-[#2C2520]">
         {/* Search Header */}
         <div className="p-4 border-b border-[#EBE5DA] flex items-center gap-3 bg-white">
