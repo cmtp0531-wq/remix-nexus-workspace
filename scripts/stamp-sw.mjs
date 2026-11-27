@@ -15,7 +15,8 @@ if (!match) {
   process.exit(0);
 }
 
-const stamp = match[1];
+// 빌드마다 고유한 이름이 되도록 시각을 함께 넣습니다. (sw.js 가 그대로여도 새 빌드임을 알 수 있게)
+const stamp = `${match[1]}-${Date.now().toString(36)}`;
 const sw = await readFile(swPath, 'utf8');
 const next = sw.replace(/const CACHE = '[^']*';/, `const CACHE = 'nexus-shell-${stamp}';`);
 if (next !== sw) await writeFile(swPath, next, 'utf8');

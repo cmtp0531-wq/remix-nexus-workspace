@@ -1,7 +1,7 @@
 // Remix Nexus 서비스 워커
 // - 앱 셸 정적 자산을 캐시해 재방문 시 즉시 로딩 (체감 로그인/진입 시간 단축)
 // - 미디어(YouTube iframe)는 캐시하지 않고 네트워크로 그대로 전달합니다.
-// - 새 빌드로 교체될 때는 열려 있는 화면을 새 버전으로 다시 엽니다.
+// - 새 빌드로 교체되면 열려 있는 화면에 알려 새로고침을 안내합니다.
 //   (휴대폰에 앱처럼 띄워 둔 화면이 옛 코드로 남아 이미 고친 버그가 계속 보이던 문제 방지)
 const CACHE = 'nexus-shell-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest'];
@@ -25,13 +25,14 @@ self.addEventListener('activate', (event) => {
       await self.clients.claim();
 
       if (!isUpgrade) return;
-      // 열려 있는 화면에 알리고, 옛 코드로 남은 화면은 새 버전으로 다시 엽니다.
+      // 열려 있는 화면에 새 버전이 준비됐다고 알립니다.
+      // (화면을 프로그램으로 강제 새로고침하면 입력 중인 내용을 잃거나 로딩이 멈출 수 있어,
+      //  새로고침은 화면 쪽에서 안내 후 사용자가/백그라운드 전환 시 하도록 둡니다.)
       const clientList = await self.clients.matchAll({ type: 'window' });
       await Promise.all(
         clientList.map(async (client) => {
           try {
             client.postMessage({ type: 'NEXUS_SW_UPDATED', version: CACHE });
-            if ('navigate' in client) await client.navigate(client.url);
           } catch {
             /* 개별 화면 실패는 무시 */
           }
