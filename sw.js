@@ -3,7 +3,7 @@
 // - 미디어(YouTube iframe)는 캐시하지 않고 네트워크로 그대로 전달합니다.
 // - 새 빌드로 교체될 때는 열려 있는 화면을 새 버전으로 다시 엽니다.
 //   (휴대폰에 앱처럼 띄워 둔 화면이 옛 코드로 남아 이미 고친 버그가 계속 보이던 문제 방지)
-const CACHE = 'nexus-shell-v3';
+const CACHE = 'nexus-shell-Cimkg6MX';
 const SHELL = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
