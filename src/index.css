@@ -771,8 +771,12 @@ header { background-image: var(--nx-header-glow, none); }
 }
 /* 배경화면이 깔린 패널 안에서는 대화 영역 자체 배경을 투명하게 */
 .nx-wallpaper-panel > * {
-  position: relative;
   z-index: 1;
+}
+/* 직접 자식이 absolute/fixed 로 띄워진 오버레이(맨 밑으로 버튼 등)는
+   position 을 덮어쓰지 않습니다. (예전에는 relative 로 바뀌면서 대화 폭을 잡아먹었습니다) */
+.nx-wallpaper-panel > *:not(.absolute):not(.fixed):not(.sticky) {
+  position: relative;
 }
 .nx-wallpaper-panel .nx-chat-bg {
   background-color: transparent !important;

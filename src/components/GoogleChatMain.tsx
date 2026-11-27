@@ -1708,16 +1708,16 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       return (
         <div
           key={messageId + 'poll'}
-          className="mt-2.5 p-4 rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] cafe-shadow max-w-md space-y-3"
+          className="mt-2.5 p-4 rounded-2xl bg-[#FDFBF7] border border-[#EBE5DA] cafe-shadow w-[calc(85vw-94px)] max-w-[24rem] space-y-3"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-[#E6DCD0] text-[#3E2723]">
                 <Vote className="w-4 h-4 text-[#C18C5D]" />
               </div>
-              <h4 className="text-xs font-bold text-[#2C2520]">{poll.question || '투표'}</h4>
+              <h4 className="text-xs font-bold text-[#2C2520] min-w-0 break-words">{poll.question || '투표'}</h4>
             </div>
-            <span className="text-[10px] text-[#7A6A5C] font-semibold">총 {totalVotes}명 참여</span>
+            <span className="text-[10px] text-[#7A6A5C] font-semibold shrink-0 whitespace-nowrap">총 {totalVotes}명 참여</span>
           </div>
 
           <div className="space-y-2">
@@ -1738,14 +1738,14 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                         : 'border-[#EBE5DA] hover:border-[#C18C5D] text-[#2C2520]'
                     }`}
                   >
-                    <div className="flex items-center gap-2 z-10">
-                      <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${hasVoted ? 'border-[#3E2723] bg-[#3E2723]' : 'border-[#A89A8E]'}`}>
+                    <div className="flex items-center gap-2 z-10 min-w-0">
+                      <div className={`w-3.5 h-3.5 shrink-0 rounded-full border flex items-center justify-center ${hasVoted ? 'border-[#3E2723] bg-[#3E2723]' : 'border-[#A89A8E]'}`}>
                         {hasVoted && <Check className="w-2.5 h-2.5 text-white" />}
                       </div>
-                      <span>{opt.text}</span>
+                      <span className="min-w-0 break-words">{opt.text}</span>
                     </div>
 
-                    <span className="text-[11px] font-mono text-[#7A6A5C] z-10">
+                    <span className="text-[11px] font-mono text-[#7A6A5C] z-10 shrink-0 whitespace-nowrap pl-2">
                       {opt.voterIds.length}표 ({percentage}%)
                     </span>
 
@@ -2429,7 +2429,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                   ) : (
                     /* Normal Speech Bubble: Distinct Google Blue on Right for user, White on Left for others */
                     <div
-                      className={`nx-bubble-in nx-msg-bubble relative inline-block max-w-[85%] sm:max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed break-words ${
+                      className={`nx-bubble-in nx-msg-bubble relative inline-block rounded-2xl p-3 text-xs leading-relaxed break-words max-w-[85%] sm:max-w-[75%] ${
                         isMine ? 'rounded-tr-xs' : 'rounded-tl-xs'
                       } ${isRedacted ? 'italic opacity-70' : ''}`}
                       style={
@@ -2577,6 +2577,47 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                       )}
                     </div>
                   )}
+
+                  {/* 모바일 전용 빠른 작업 — 행 너비를 잡아먹지 않도록 말풍선 아래에 둡니다. */}
+                  <div style={isRedacted ? { display: 'none' } : undefined} className="sm:hidden flex items-center gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setTranslateTargetMessage(msg)}
+                      className="p-1 text-[#0369A1] hover:bg-[#E0F2FE] rounded-lg cursor-pointer"
+                      title="메시지 번역"
+                    >
+                      <Languages className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveReplyTarget(msg);
+                        textareaRef.current?.focus();
+                      }}
+                      className="p-1 text-[#7A6A5C] hover:text-[#C18C5D] hover:bg-[#F4EFE6] rounded-lg cursor-pointer"
+                      title="답글 달기"
+                    >
+                      <Reply className="w-3.5 h-3.5" />
+                    </button>
+                    {onDeleteMessageTracedFree && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMessage(msg.id)}
+                        className={`p-1 rounded-lg cursor-pointer ${isMine ? 'text-[#DC2626] hover:bg-[#FEE2E2]' : 'text-[#7A6A5C] hover:bg-[#F4EFE6]'}`}
+                        title={isMine ? '메시지 삭제' : '내 화면에서만 가리기'}
+                      >
+                        {isMine ? <Trash2 className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setActiveMenuMessageId(activeMenuMessageId === msg.id ? null : msg.id)}
+                      className="p-1.5 rounded-lg text-[#A89A8E] hover:text-[#2C2520] hover:bg-[#F4EFE6] cursor-pointer"
+                      title="더보기"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </div>
 
                   {/* 전송 실패 표시 — 조용히 넘기지 않고 재전송/삭제를 바로 제공합니다. */}
                   {isMine && msg.deliveryStatus === 'failed' && (
@@ -2804,47 +2845,6 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                     title="더보기"
                   >
                     <MoreHorizontal className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Mobile Touch Action Buttons (모바일 전용 간편 버튼) */}
-                <div style={isRedacted ? { display: 'none' } : undefined} className="sm:hidden flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setTranslateTargetMessage(msg)}
-                    className="p-1 text-[#0369A1] hover:bg-[#E0F2FE] rounded-lg cursor-pointer"
-                    title="메시지 번역"
-                  >
-                    <Languages className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveReplyTarget(msg);
-                      textareaRef.current?.focus();
-                    }}
-                    className="p-1 text-[#7A6A5C] hover:text-[#C18C5D] hover:bg-[#F4EFE6] rounded-lg cursor-pointer"
-                    title="답글 달기"
-                  >
-                    <Reply className="w-3.5 h-3.5" />
-                  </button>
-                  {onDeleteMessageTracedFree && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteMessage(msg.id)}
-                      className={`p-1 rounded-lg cursor-pointer ${isMine ? 'text-[#DC2626] hover:bg-[#FEE2E2]' : 'text-[#7A6A5C] hover:bg-[#F4EFE6]'}`}
-                      title={isMine ? '메시지 삭제' : '내 화면에서만 가리기'}
-                    >
-                      {isMine ? <Trash2 className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setActiveMenuMessageId(activeMenuMessageId === msg.id ? null : msg.id)}
-                    className="p-1.5 rounded-lg text-[#A89A8E] hover:text-[#2C2520] hover:bg-[#F4EFE6] cursor-pointer"
-                    title="더보기"
-                  >
-                    <MoreHorizontal className="w-4 h-4" />
                   </button>
                 </div>
 
