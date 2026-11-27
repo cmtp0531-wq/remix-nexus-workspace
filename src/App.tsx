@@ -2329,7 +2329,7 @@ function WorkspaceApp() {
 
       {/* 새 버전 안내 — 입력창을 가리지 않는 하단 배너 */}
       {updateReady && (
-        <div className="fixed bottom-24 sm:bottom-28 right-3 z-[130] flex items-center gap-2 px-3 py-2 rounded-xl bg-[#3E2723] text-white text-[11px] font-semibold shadow-xl max-w-[calc(100vw-24px)]">
+        <div className="fixed top-16 sm:top-20 right-3 z-[130] flex items-center gap-2 px-3 py-2 rounded-xl bg-[#3E2723] text-white text-[11px] font-semibold shadow-xl max-w-[calc(100vw-24px)]">
           <span>새 버전이 나왔어요</span>
           <button
             type="button"
