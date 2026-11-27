@@ -1,7 +1,9 @@
 // Remix Nexus 서비스 워커
 // - 앱 셸 정적 자산을 캐시해 재방문 시 즉시 로딩 (체감 로그인/진입 시간 단축)
 // - 미디어(YouTube iframe)는 캐시하지 않고 네트워크로 그대로 전달합니다.
-const CACHE = 'nexus-shell-v2';
+// - 새 빌드로 교체될 때는 열려 있는 화면을 새 버전으로 다시 엽니다.
+//   (휴대폰에 앱처럼 띄워 둔 화면이 옛 코드로 남아 이미 고친 버그가 계속 보이던 문제 방지)
+const CACHE = 'nexus-shell-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -15,10 +17,27 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim())
+    (async () => {
+      const keys = await caches.keys();
+      // 이전 버전의 캐시가 남아 있다면 = 새 빌드로 교체되는 중입니다.
+      const isUpgrade = keys.some((key) => key !== CACHE);
+      await Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+      await self.clients.claim();
+
+      if (!isUpgrade) return;
+      // 열려 있는 화면에 알리고, 옛 코드로 남은 화면은 새 버전으로 다시 엽니다.
+      const clientList = await self.clients.matchAll({ type: 'window' });
+      await Promise.all(
+        clientList.map(async (client) => {
+          try {
+            client.postMessage({ type: 'NEXUS_SW_UPDATED', version: CACHE });
+            if ('navigate' in client) await client.navigate(client.url);
+          } catch {
+            /* 개별 화면 실패는 무시 */
+          }
+        })
+      );
+    })()
   );
 });
 
