@@ -1481,6 +1481,11 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       setIsPollModalOpen(false);
       setPollQuestion('');
       setPollOptions(['', '', '']);
+      // 모바일에서 모달 입력창이 사라진 뒤 키보드가 남아 화면을 가리는 일을 막습니다.
+      if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      window.setTimeout(() => textareaRef.current?.focus({ preventScroll: true }), 60);
     }
   };
 
@@ -2661,9 +2666,10 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
                   {/* Reactions with 1-Click Toggle & Add Emoji Popover */}
                   <div className={`flex flex-wrap items-center gap-1.5 mt-1.5 relative ${isMine ? 'justify-end' : ''}`}>
-                    {msg.reactions && msg.reactions.map((r) => {
-                      const hasReacted = r.userIds.includes(currentUser.id);
-                      const userNames = r.userIds.map((uid) => allUsers.find((u) => u.id === uid)?.name || uid).join(', ');
+                    {Array.isArray(msg.reactions) && msg.reactions.map((r) => {
+                      const userIds = Array.isArray(r?.userIds) ? r.userIds.filter(Boolean) : [];
+                      const hasReacted = userIds.includes(currentUser.id);
+                      const userNames = userIds.map((uid) => allUsers.find((u) => u.id === uid)?.name || uid).join(', ');
                       return (
                         <button
                           key={r.emoji}
@@ -2677,7 +2683,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                           }`}
                         >
                           <span>{r.emoji}</span>
-                          <span>{r.count}</span>
+                          <span>{Number(r.count) || userIds.length}</span>
                         </button>
                       );
                     })}
@@ -3475,7 +3481,13 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
       {/* 터치 롱프레스 액션 시트 (모바일·태블릿에서 메시지를 꾹 누르면 올라옵니다) */}
       {touchSheet.mounted && touchActionTarget &&
         createPortal(
-          <div className="fixed inset-0 z-[140]" role="dialog" aria-modal="true" aria-label="메시지 빠른 작업">
+          <div
+            className={`fixed inset-0 z-[140] ${touchSheet.visible ? 'pointer-events-auto' : 'pointer-events-none'}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label="메시지 빠른 작업"
+            aria-hidden={!touchSheet.visible}
+          >
         <div
           onClick={(event) => {
             // 방금 열린 직후 발생한 합성 클릭(손을 떼는 순간)으로 바로 닫히지 않게 합니다.
@@ -3656,7 +3668,8 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs select-none animate-in fade-in duration-150 overflow-y-auto"
           style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setIsPollModalOpen(false); }}
+          onPointerDown={(e) => { if (e.target === e.currentTarget) setIsPollModalOpen(false); }}
+          onKeyDown={(e) => { if (e.key === 'Escape') setIsPollModalOpen(false); }}
         >
           <div className="w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl bg-white border border-[#EBE5DA] p-5 sm:p-6 cafe-shadow-lg text-[#2C2520] space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[#EBE5DA]">

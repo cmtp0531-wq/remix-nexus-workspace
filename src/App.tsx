@@ -58,6 +58,7 @@ import { InAppGmailHub } from './components/InAppGmailHub';
 import { GoogleWorkspaceEditor } from './components/GoogleWorkspaceEditor';
 import { SettingsModal } from './components/SettingsModal';
 import { ChatErrorBoundary } from './components/ChatErrorBoundary';
+import { applyPollVoteToMessage, sanitizeMessages, sanitizeMessagesMap } from './services/messageSanitizer';
 import { Mail, FileText, HardDrive, MessageSquare, ChevronRight, Layout, Maximize2, Columns, Table, Presentation, X } from 'lucide-react';
 import { notificationService, InAppNotification } from './services/notificationService';
 import { grantDrivePermissionsToSpaceMembers } from './services/googleWorkspace';
@@ -145,7 +146,13 @@ function WorkspaceApp() {
   const [firebaseReady, setFirebaseReady] = useState(() => isFirebaseConfigured());
   const [allUsers, setAllUsers] = useState<User[]>(() => storage.getUsers());
   const [spaces, setSpaces] = useState<Space[]>(() => storage.getSpaces());
-  const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>(() => storage.getMessages());
+  const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>(() => sanitizeMessagesMap(storage.getMessages()));
+  // 채팅 렌더 오류가 나면 데이터를 정리해 한 번 자동으로 복구합니다. (값이 바뀌면 에러 경계가 다시 그립니다)
+  const [chatRepairKey, setChatRepairKey] = useState(0);
+  // 새 빌드가 준비되면(=오래 켜 둔 화면이 옛 코드로 남아 있을 때) 새로고침을 안내합니다.
+  const [updateReady, setUpdateReady] = useState(false);
+  // 방금 누른 투표를 잠시 기억해, 서버 동기화가 늦거나 실패해도 화면에서 표가 되돌아가지 않게 합니다.
+  const pendingVotesRef = React.useRef<Record<string, { optionId: string | null; at: number }>>({});
   const [tasks, setTasks] = useState<TaskItem[]>(() => storage.getTasks());
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(() => storage.getFriendRequests());
   const [friendships, setFriendships] = useState<Friendship[]>(() => storage.getFriendships());
@@ -576,14 +583,27 @@ function WorkspaceApp() {
     return subscribeToCloudChatMessages(activeSpaceId, (cloudMessages) => {
       setMessagesMap((previous) => {
         const localMessages = previous[activeSpaceId] || [];
-        const cloudIds = new Set(cloudMessages.map((m: Message) => m.id));
+        // 서버에서 온 데이터도 화면이 그릴 수 있는 모양으로 정리해 둡니다.
+        const safeCloud = sanitizeMessages(cloudMessages, activeSpaceId);
+        const cloudIds = new Set(safeCloud.map((m: Message) => m.id));
         const localOnly = localMessages.filter((m) => m.senderId === 'system' || (m.senderId === currentUser.id && !cloudIds.has(m.id)));
-        const merged: Message[] = [...(cloudMessages as Message[]), ...localOnly].sort((a, b) => {
+        const merged: Message[] = [...safeCloud, ...localOnly].sort((a, b) => {
           const ta = Number((a as any).createdAt || 0);
           const tb = Number((b as any).createdAt || 0);
           return ta - tb;
         });
-        const next = { ...previous, [activeSpaceId]: merged };
+        // 방금 내가 누른 투표가 서버 스냅샷에 아직 반영되지 않아도 화면에서 사라지지 않게 합니다.
+        const now = Date.now();
+        const withMyVotes = merged.map((message) => {
+          const pending = pendingVotesRef.current[message.id];
+          if (!pending) return message;
+          if (now - pending.at > 45000) {
+            delete pendingVotesRef.current[message.id];
+            return message;
+          }
+          return applyPollVoteToMessage(message, currentUser.id, pending.optionId);
+        });
+        const next = { ...previous, [activeSpaceId]: withMyVotes };
         storage.saveMessages(next);
         return next;
       });
@@ -591,6 +611,22 @@ function WorkspaceApp() {
       console.warn('Cloud chat subscription error:', error.message);
     });
   }, [activeSpaceId, currentUser?.id]);
+
+  // 새 버전 알림: 화면이 뒤로 갔을 때는 조용히 새로고침하고, 보고 있을 때는 하단 안내를 띄웁니다.
+  useEffect(() => {
+    const onReady = () => setUpdateReady(true);
+    window.addEventListener('nexus-update-ready', onReady);
+    return () => window.removeEventListener('nexus-update-ready', onReady);
+  }, []);
+
+  useEffect(() => {
+    if (!updateReady) return;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') window.location.reload();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [updateReady]);
 
   // In-app notifications listener
   useEffect(() => {
@@ -1398,6 +1434,15 @@ function WorkspaceApp() {
   //    - 로그인 상태면 Firestore 메시지 문서의 voterIds 를 원자적으로 갱신해
   //      같은 방의 다른 참여자 화면에도 실시간으로 같은 결과가 보이게 합니다.
   const handleVotePoll = (messageId: string, optionId: string) => {
+    try {
+      votePoll(messageId, optionId);
+    } catch (error) {
+      // 투표 반영 중 어떤 예외가 나도 채팅 입력·전송은 계속 쓸 수 있어야 합니다.
+      console.warn('투표를 반영하지 못했습니다:', error);
+    }
+  };
+
+  const votePoll = (messageId: string, optionId: string) => {
     const channelMsgs = messagesMap[activeSpaceId] || [];
     const target = channelMsgs.find((msg) => msg.id === messageId);
     const attachmentIndex = (target?.attachments || []).findIndex((att) => att.type === 'poll');
@@ -1447,17 +1492,33 @@ function WorkspaceApp() {
     }
     setMessagesMap(nextMap);
 
+    // 방금 누른 표를 기억해 둡니다(서버 스냅샷이 늦게 와도 표가 사라지지 않게).
+    pendingVotesRef.current[messageId] = { optionId: nextOptionId, at: Date.now() };
+
     // 게스트/비로그인은 이 기기에만 저장됩니다.
     const signedIn = Boolean(auth?.currentUser && auth.currentUser.uid === currentUser.id);
     if (signedIn) {
-      void savePollVoteToCloud({
-        spaceId: activeSpaceId,
+      const spaceId = activeSpaceId;
+      savePollVoteToCloud({
+        spaceId,
         messageId,
         attachmentIndex,
         options: pollOptions,
         optionId: nextOptionId,
       }).catch((error) => {
-        console.warn('투표를 서버에 저장하지 못했습니다:', error);
+        console.warn('투표를 서버에 저장하지 못했습니다(재시도):', error);
+        // 규칙 반영 지연·네트워크 순단이면 한 번 더 시도합니다. 실패해도 화면 상태는 유지됩니다.
+        window.setTimeout(() => {
+          void savePollVoteToCloud({
+            spaceId,
+            messageId,
+            attachmentIndex,
+            options: pollOptions,
+            optionId: nextOptionId,
+          }).catch((retryError) => {
+            console.warn('투표를 서버에 저장하지 못했습니다:', retryError);
+          });
+        }, 1500);
       });
     }
   };
@@ -2041,7 +2102,23 @@ function WorkspaceApp() {
   );
 
   const renderChatMain = () => (
-    <ChatErrorBoundary>
+    <ChatErrorBoundary
+      resetKey={`${activeSpace.id}-${chatRepairKey}`}
+      onRecover={() => {
+        // 깨진 메시지·투표 데이터를 정리해 다시 그립니다. (한 번은 자동 복구)
+        setMessagesMap((previous) => {
+          const repaired = sanitizeMessagesMap(previous);
+          try {
+            storage.saveMessages(repaired);
+          } catch (error) {
+            console.warn('복구한 대화를 저장하지 못했습니다:', error);
+          }
+          return repaired;
+        });
+        setChatRepairKey((key) => key + 1);
+      }}
+      onSendFallback={(text) => handleSendMessage(text)}
+    >
     <GoogleChatMain
       space={activeSpace}
       messages={activeMessages}
@@ -2249,6 +2326,28 @@ function WorkspaceApp() {
           </div>
         ))}
       </div>
+
+      {/* 새 버전 안내 — 입력창을 가리지 않는 하단 배너 */}
+      {updateReady && (
+        <div className="fixed bottom-3 right-3 z-[130] flex items-center gap-2 px-3 py-2 rounded-xl bg-[#3E2723] text-white text-[11px] font-semibold shadow-xl">
+          <span>새 버전이 나왔어요</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-2 py-1 rounded-lg bg-white text-[#3E2723] font-bold"
+          >
+            새로고침
+          </button>
+          <button
+            type="button"
+            onClick={() => setUpdateReady(false)}
+            aria-label="새 버전 안내 닫기"
+            className="text-white/70 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 초대 도착 알림 (인앱 토스트) */}
       <InviteToasts
