@@ -15,7 +15,11 @@ createRoot(document.getElementById('root')!).render(<App />);
 // 이미 고친 버그가 계속 보이는 일이 있어, 새 버전이 준비되면 알려 줍니다.
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   const announceUpdate = () => window.dispatchEvent(new CustomEvent('nexus-update-ready'));
-  navigator.serviceWorker.addEventListener('controllerchange', announceUpdate);
+  // 첫 방문(설치) 때는 '새 버전'이 아니므로, 이미 워커가 붙어 있던 화면에서만 교체를 알립니다.
+  const hadControllerAtLoad = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadControllerAtLoad) announceUpdate();
+  });
   navigator.serviceWorker.addEventListener('message', (event) => {
     if ((event.data as { type?: string } | null)?.type === 'NEXUS_SW_UPDATED') announceUpdate();
   });
