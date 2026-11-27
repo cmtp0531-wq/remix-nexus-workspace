@@ -1,7 +1,7 @@
 // Remix Nexus 서비스 워커
 // - 앱 셸 정적 자산을 캐시해 재방문 시 즉시 로딩 (체감 로그인/진입 시간 단축)
 // - 미디어(YouTube iframe)는 캐시하지 않고 네트워크로 그대로 전달합니다.
-const CACHE = 'nexus-shell-v1';
+const CACHE = 'nexus-shell-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
