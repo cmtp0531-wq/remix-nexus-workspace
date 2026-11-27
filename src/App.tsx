@@ -912,7 +912,12 @@ function WorkspaceApp() {
       [activeSpaceId]: [...(messagesMap[activeSpaceId] || []), newMsg],
     };
 
-    storage.saveMessages(nextMessages);
+    try {
+      storage.saveMessages(nextMessages);
+    } catch (error) {
+      // 기기 저장 공간이 부족해도 전송 흐름과 화면 갱신은 멈추지 않게 합니다.
+      console.warn('메시지를 기기에 저장하지 못했습니다:', error);
+    }
     setMessagesMap(nextMessages);
     if (!online) {
       console.warn('[전송 실패] 오프라인 상태입니다. 연결되면 재전송할 수 있습니다.');

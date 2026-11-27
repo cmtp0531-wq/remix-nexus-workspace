@@ -3653,8 +3653,12 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
 
       {/* QUICK POLL CREATOR MODAL (Slack Feature) */}
       {isPollModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs select-none animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl bg-white border border-[#EBE5DA] p-5 sm:p-6 cafe-shadow-lg text-[#2C2520] space-y-3">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs select-none animate-in fade-in duration-150 overflow-y-auto"
+          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setIsPollModalOpen(false); }}
+        >
+          <div className="w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl bg-white border border-[#EBE5DA] p-5 sm:p-6 cafe-shadow-lg text-[#2C2520] space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[#EBE5DA]">
               <div className="flex items-center gap-2">
                 <Vote className="w-4 h-4 text-[#C18C5D]" />
@@ -3673,7 +3677,7 @@ export const GoogleChatMain: React.FC<GoogleChatMainProps> = ({
                 onChange={(e) => setPollQuestion(e.target.value)}
                 placeholder="예: 오늘 점심 메뉴 뭐 먹을까요?"
                 className="w-full bg-[#FDFBF7] border border-[#EBE5DA] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#C18C5D]"
-                autoFocus
+                enterKeyHint="next"
               />
             </div>
 
